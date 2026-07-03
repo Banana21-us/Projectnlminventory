@@ -1,26 +1,116 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f7f7f5; /* soft neutral off-white */
+  --surface: #ffffff;
+  --ink: #18181b; /* primary text */
+  --ink-soft: #6b7280; /* secondary text */
+  --ink-faint: #9ca3af; /* placeholder/hint text */
+  --line: #e9e9e5; /* hairline dividers */
+  --line-strong: #d6d6d0;
+  --brand: #0d9488; /* mission teal — primary actions */
+  --brand-dark: #0f766e; /* hover */
+  --brand-tint: #f0fdfa; /* light teal bg */
+  --ember: #ff8200; /* warm accent, used sparingly */
+  --ember-dark: #db6f00;
+  --ember-tint: #fff3e5;
+  --success: #059669; /* in stock */
+  --success-tint: #ecfdf5;
+  --warning: #d97706; /* low stock */
+  --warning-tint: #fffbeb;
+  --danger: #dc2626; /* critical / out */
+  --danger-tint: #fef2f2;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-tint: var(--brand-tint);
+  --color-ember: var(--ember);
+  --color-ember-dark: var(--ember-dark);
+  --color-ember-tint: var(--ember-tint);
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+
   --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Hide number-input spinners for quantity fields */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.animate-sheet-up {
+  animation: sheet-up 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes sheet-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-sheet-right {
+  animation: sheet-right 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) both;
 }
