@@ -1,11 +1,11 @@
-import fs from "node:fs";
-import path from "node:path";
 import { Document, Page, Text, View, Image, StyleSheet, Font } from "@react-pdf/renderer";
+import { LOGO_PNG_BASE64 } from "./logo-base64";
 import type { Movement } from "@/lib/types";
 
-// Read once at module load — a file path string isn't reliably resolved by
-// @react-pdf/renderer's image loader, a raw buffer always works.
-const logoBuffer = fs.readFileSync(path.join(process.cwd(), "public", "logo-churches.png"));
+// Embedded rather than read from public/ at runtime — Vercel serverless
+// functions don't guarantee public/ assets exist on the function's
+// filesystem, and a dynamically-built fs path can't be traced at build time.
+const logoDataUri = `data:image/png;base64,${LOGO_PNG_BASE64}`;
 
 Font.registerHyphenationCallback((word) => [word]);
 
@@ -92,7 +92,7 @@ export function MovementsReportDocument({ from, to, movements, generatedBy }: Mo
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Image style={styles.logo} src={logoBuffer} />
+          <Image style={styles.logo} src={logoDataUri} />
           <View>
             <Text style={styles.orgName}>Northern Luzon Mission</Text>
             <Text style={styles.orgSub}>Inventory &amp; Dispensing System</Text>
