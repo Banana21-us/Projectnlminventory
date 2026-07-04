@@ -116,6 +116,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.STAFF;
   const primaryNav = nav.filter((item) => !SECONDARY_HREFS.has(item.href));
   const secondaryNav = nav.filter((item) => SECONDARY_HREFS.has(item.href));
+  // Profile lives in the mobile header instead, so it doesn't eat one of the
+  // bottom tab bar's 5 slots.
+  const tabItems = nav.filter((item) => item.href !== "/profile").slice(0, 5);
 
   useEffect(() => {
     if (status === "unauthenticated" && !pathname.startsWith("/login")) {
@@ -175,6 +178,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Mobile header */}
         <header className="sticky top-0 z-30 flex items-center justify-between bg-surface/90 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
           <Wordmark />
+          <Link
+            href="/profile"
+            aria-label="Profile"
+            aria-current={pathname === "/profile" ? "page" : undefined}
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
+              pathname === "/profile"
+                ? "bg-brand-tint text-brand-dark"
+                : "text-ink-faint hover:bg-bg hover:text-ink",
+            )}
+          >
+            <User className="h-5 w-5" />
+          </Link>
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-5 sm:px-6 sm:pb-10 sm:pt-8">
@@ -182,13 +198,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* Mobile bottom tab bar with raised dispense action */}
+      {/* Mobile bottom tab bar with raised dispense action — Profile lives in
+          the mobile header instead, so it doesn't eat one of these 5 slots. */}
       <nav className="fixed inset-x-0 bottom-0 z-30 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
         <div
           className="mx-auto grid max-w-md"
-          style={{ gridTemplateColumns: `repeat(${Math.min(nav.length, 5)}, 1fr)` }}
+          style={{ gridTemplateColumns: `repeat(${tabItems.length}, 1fr)` }}
         >
-          {nav.slice(0, 5).map(({ href, label, icon: Icon }) => {
+          {tabItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
             const raised = href === "/dispense";
             return (
