@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppShell } from "@/components/shell";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider } from "@/components/SessionProvider";
+import { PWARegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,7 @@ export default function RootLayout({
       <body className="min-h-full">
         <SessionProvider>
           <ToastProvider>
+            <PWARegister />
             <AppShell>{children}</AppShell>
           </ToastProvider>
         </SessionProvider>
