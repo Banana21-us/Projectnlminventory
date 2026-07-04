@@ -1,31 +1,103 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Cross, House, Package, ScrollText, Send, User, Loader } from "lucide-react";
+import {
+  BedDouble,
+  House,
+  Loader,
+  Package,
+  ScrollText,
+  Send,
+  ShieldCheck,
+  User,
+} from "lucide-react";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { Role } from "@/lib/types";
 
-const NAV = [
-  { href: "/", label: "Home", icon: House },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/dispense", label: "Dispense", icon: Send },
-  { href: "/log", label: "Log", icon: ScrollText },
-  { href: "/profile", label: "Profile", icon: User },
-] as const;
+interface NavItem {
+  href: string;
+  label: string;
+  icon: typeof House;
+}
 
-function Wordmark({ compact }: { compact?: boolean }) {
+// These sit below a separator at the bottom of the sidebar — audit/admin/
+// account links rather than day-to-day work sections.
+const SECONDARY_HREFS = new Set(["/log", "/admin", "/profile"]);
+
+// Each role gets its own sidebar — the proxy enforces the same map
+// server-side (src/lib/route-guards.ts), this is only presentation.
+const NAV_BY_ROLE: Record<Role, NavItem[]> = {
+  ADMIN: [
+    { href: "/dashboard", label: "Home", icon: House },
+    { href: "/inventory", label: "Inventory", icon: Package },
+    { href: "/dispense", label: "Dispense", icon: Send },
+    { href: "/log", label: "Log", icon: ScrollText },
+    { href: "/admin", label: "Admin", icon: ShieldCheck },
+    { href: "/guesthouse", label: "Guesthouse", icon: BedDouble },
+    { href: "/profile", label: "Profile", icon: User },
+  ],
+  STAFF: [
+    { href: "/dashboard", label: "Home", icon: House },
+    { href: "/inventory", label: "Inventory", icon: Package },
+    { href: "/dispense", label: "Dispense", icon: Send },
+    { href: "/log", label: "Log", icon: ScrollText },
+    { href: "/profile", label: "Profile", icon: User },
+  ],
+  GUESTHOUSE: [
+    { href: "/guesthouse", label: "Guesthouse", icon: BedDouble },
+    { href: "/profile", label: "Profile", icon: User },
+  ],
+};
+
+function SidebarLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+}: NavItem & { active: boolean }) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative flex min-h-11 items-center justify-center gap-3 rounded-lg transition-colors sm:w-11 lg:w-auto lg:justify-start lg:px-3",
+        active ? "bg-brand-tint text-brand-dark" : "text-ink-soft hover:bg-bg hover:text-ink",
+      )}
+      title={label}
+    >
+      <Icon className={cn("h-5 w-5 shrink-0", active ? "text-brand" : "text-ink-faint")} />
+      <span className="hidden text-sm font-medium lg:inline">{label}</span>
+      {active && (
+        <span className="absolute inset-y-2 left-0 hidden w-1 rounded-full bg-brand lg:block" />
+      )}
+    </Link>
+  );
+}
+
+function Wordmark({ iconOnly }: { iconOnly?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ember text-white shadow-sm">
-        <Cross className="h-5 w-5" />
+      <span className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-black/5">
+        <Image
+          src="/logo-churches.png"
+          alt="Seventh-day Adventist Church logo"
+          fill
+          sizes="36px"
+          className="object-contain p-1"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
       </span>
-      {!compact && (
+      {!iconOnly && (
         <span className="leading-tight">
           <span className="block text-sm font-bold tracking-tight text-ink">
-            Mission Supply
+            Northern Luzon Mission
           </span>
           <span className="block text-[11px] font-medium text-ink-faint">
             Inventory &amp; dispensing
@@ -39,7 +111,11 @@ function Wordmark({ compact }: { compact?: boolean }) {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status } = useSession();
+  const { status, data: session } = useSession();
+  const role = (session?.user?.role ?? "STAFF") as Role;
+  const nav = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.STAFF;
+  const primaryNav = nav.filter((item) => !SECONDARY_HREFS.has(item.href));
+  const secondaryNav = nav.filter((item) => SECONDARY_HREFS.has(item.href));
 
   useEffect(() => {
     if (status === "unauthenticated" && !pathname.startsWith("/login")) {
@@ -72,39 +148,27 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Tablet icon rail / desktop labeled sidebar */}
       <aside className="sticky top-0 hidden h-dvh shrink-0 flex-col items-center gap-8 bg-surface py-6 shadow-[1px_0_0_rgba(0,0,0,0.06)] sm:flex sm:w-[76px] lg:w-60 lg:items-stretch lg:px-4">
         <div className="lg:px-1">
-          <Wordmark compact />
+          <span className="lg:hidden">
+            <Wordmark iconOnly />
+          </span>
+          <span className="hidden lg:block">
+            <Wordmark />
+          </span>
         </div>
-        <nav className="flex flex-col items-center gap-1 lg:items-stretch">
-          {NAV.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "relative flex min-h-11 items-center justify-center gap-3 rounded-lg transition-colors sm:w-11 lg:w-auto lg:justify-start lg:px-3",
-                  active
-                    ? "bg-brand-tint text-brand-dark"
-                    : "text-ink-soft hover:bg-bg hover:text-ink",
-                )}
-                title={label}
-              >
-                <Icon
-                  className={cn("h-5 w-5 shrink-0", active ? "text-brand" : "text-ink-faint")}
-                />
-                <span className="hidden text-sm font-medium lg:inline">{label}</span>
-                {active && (
-                  <span className="absolute inset-y-2 left-0 hidden w-1 rounded-full bg-brand lg:block" />
-                )}
-              </Link>
-            );
-          })}
+        <nav className="flex flex-1 flex-col items-center gap-1 lg:items-stretch">
+          {primaryNav.map((item) => (
+            <SidebarLink key={item.href} {...item} active={pathname === item.href} />
+          ))}
+
+          {secondaryNav.length > 0 && (
+            <div className="mt-auto flex flex-col items-center gap-1 lg:items-stretch">
+              <div className="my-2 h-px w-8 self-center bg-line-strong/60 lg:w-full" />
+              {secondaryNav.map((item) => (
+                <SidebarLink key={item.href} {...item} active={pathname === item.href} />
+              ))}
+            </div>
+          )}
         </nav>
-        <div className="mt-auto hidden rounded-lg bg-ember-tint p-3 lg:block">
-          <p className="text-xs font-semibold text-ember-dark">Central Storeroom</p>
-          <p className="mt-0.5 text-[11px] text-ink-soft">Mission station stores</p>
-        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -120,8 +184,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Mobile bottom tab bar with raised dispense action */}
       <nav className="fixed inset-x-0 bottom-0 z-30 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-5">
-          {NAV.map(({ href, label, icon: Icon }) => {
+        <div
+          className="mx-auto grid max-w-md"
+          style={{ gridTemplateColumns: `repeat(${Math.min(nav.length, 5)}, 1fr)` }}
+        >
+          {nav.slice(0, 5).map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
             const raised = href === "/dispense";
             return (

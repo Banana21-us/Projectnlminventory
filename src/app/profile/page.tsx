@@ -1,20 +1,24 @@
 "use client";
 
-import { LogOut, MapPin, ShieldCheck } from "lucide-react";
-import { signOut } from "next-auth/react"
+import { LogOut, ShieldCheck } from "lucide-react";
+import { signOut } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CURRENT_USER, canManageInventory } from "@/lib/session";
-
-const PERMISSIONS: { label: string; allowed: boolean }[] = [
-  { label: "Dispense stock", allowed: true },
-  { label: "View movement log", allowed: true },
-  { label: "Add & edit items", allowed: canManageInventory(CURRENT_USER.role) },
-  { label: "Manage users", allowed: CURRENT_USER.role === "ADMIN" },
-];
+import { useCurrentUser } from "@/lib/use-user";
 
 export default function ProfilePage() {
-  const initials = CURRENT_USER.name
+  const { name, email, role, can } = useCurrentUser();
+
+  const permissions: { label: string; allowed: boolean }[] = [
+    { label: "View inventory", allowed: can("inventory.view") },
+    { label: "Dispense & sell stock", allowed: can("dispense.create") },
+    { label: "Add & edit items", allowed: can("inventory.manage") },
+    { label: "View reports", allowed: can("reports.view") },
+    { label: "Manage guesthouse", allowed: can("guesthouse.manage") },
+    { label: "Manage users", allowed: can("users.manage") },
+  ];
+
+  const initials = name
     .split(" ")
     .map((p) => p[0])
     .join("")
@@ -28,17 +32,15 @@ export default function ProfilePage() {
       <section className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-black/5">
         <div className="flex items-center gap-4">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-tint text-lg font-bold text-brand-dark">
-            {initials}
+            {initials || "?"}
           </span>
           <div>
-            <p className="text-base font-semibold text-ink">{CURRENT_USER.name}</p>
+            <p className="text-base font-semibold text-ink">{name}</p>
             <div className="mt-1 flex items-center gap-2">
               <Badge variant="brand">
-                <ShieldCheck className="h-3 w-3" /> {CURRENT_USER.role}
+                <ShieldCheck className="h-3 w-3" /> {role ?? "…"}
               </Badge>
-              <span className="flex items-center gap-1 text-xs text-ink-soft">
-                <MapPin className="h-3 w-3" /> {CURRENT_USER.station}
-              </span>
+              <span className="text-xs text-ink-soft">{email}</span>
             </div>
           </div>
         </div>
@@ -46,12 +48,10 @@ export default function ProfilePage() {
 
       <section className="rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
         <header className="border-b border-line px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-ink">
-            What this role can do
-          </h2>
+          <h2 className="text-sm font-semibold text-ink">What this role can do</h2>
         </header>
         <ul className="divide-y divide-line">
-          {PERMISSIONS.map((p) => (
+          {permissions.map((p) => (
             <li
               key={p.label}
               className="flex items-center justify-between px-5 py-3 text-sm"
@@ -71,7 +71,11 @@ export default function ProfilePage() {
         </ul>
       </section>
 
-      <Button variant="outline" className="w-full" onClick={() => signOut({ callbackUrl: "/login" })}>
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={() => signOut({ callbackUrl: "/login" })}
+      >
         <LogOut className="h-4 w-4" /> Sign out
       </Button>
     </div>

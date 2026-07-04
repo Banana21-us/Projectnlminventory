@@ -7,10 +7,12 @@ import {
   Plus,
   Search,
   ShoppingBasket,
+  UserRound,
   X,
   Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { RecipientPicker, type RecipientSelection } from "@/components/recipient-picker";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StockCount, StockGauge } from "@/components/stock";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
-import { CURRENT_USER } from "@/lib/session";
+import { useCurrentUser } from "@/lib/use-user";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -40,6 +42,8 @@ export default function DispensePage() {
   const [category, setCategory] = useState<Category | "ALL">("ALL");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [issuedTo, setIssuedTo] = useState("");
+  const [recipient, setRecipient] = useState<RecipientSelection | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -93,10 +97,13 @@ export default function DispensePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            type: "OUT",
-            itemId: item.id,
+            type: "DISPENSE",
+            stockId: item.id,
             qty,
             issuedTo: issuedTo.trim(),
+            ...(recipient?.recipientId ? { recipientId: recipient.recipientId } : {}),
+            ...(recipient?.purpose ? { purpose: recipient.purpose } : {}),
+            ...(recipient?.note ? { note: recipient.note } : {}),
           }),
         });
         if (!res.ok) {
@@ -121,6 +128,7 @@ export default function DispensePage() {
       });
       setCart({});
       setIssuedTo("");
+      setRecipient(null);
       setSheetOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Dispense failed";
@@ -136,11 +144,17 @@ export default function DispensePage() {
     <SlipPanel
       lines={cartLines}
       issuedTo={issuedTo}
-      onIssuedTo={setIssuedTo}
+      onIssuedTo={(v) => {
+        setIssuedTo(v);
+        setRecipient(null);
+      }}
+      onBrowse={() => setPickerOpen(true)}
       onRemove={(id) => setQty(id, 0, 0)}
       onConfirm={confirm}
       onCancel={() => {
         setCart({});
+        setIssuedTo("");
+        setRecipient(null);
         setError(null);
         setSheetOpen(false);
       }}
@@ -266,6 +280,15 @@ export default function DispensePage() {
           {slip}
         </Sheet>
       </div>
+
+      <RecipientPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(sel) => {
+          setIssuedTo(sel.name);
+          setRecipient(sel);
+        }}
+      />
     </div>
   );
 }
@@ -343,6 +366,7 @@ function SlipPanel({
   lines,
   issuedTo,
   onIssuedTo,
+  onBrowse,
   onRemove,
   onConfirm,
   onCancel,
@@ -352,6 +376,7 @@ function SlipPanel({
   lines: { item: Item; qty: number }[];
   issuedTo: string;
   onIssuedTo: (v: string) => void;
+  onBrowse: () => void;
   onRemove: (id: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -405,12 +430,25 @@ function SlipPanel({
           >
             Issued to
           </label>
-          <Input
-            id="issued-to"
-            value={issuedTo}
-            onChange={(e) => onIssuedTo(e.target.value)}
-            placeholder="Department or room…"
-          />
+          <div className="flex gap-2">
+            <Input
+              id="issued-to"
+              value={issuedTo}
+              onChange={(e) => onIssuedTo(e.target.value)}
+              placeholder="Department, pastor, or guest…"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="default"
+              onClick={onBrowse}
+              aria-label="Pick from department, pastor, or guest lists"
+              title="Pick from department, pastor, or guest lists"
+            >
+              <UserRound className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         {error && (
           <p className="rounded-lg bg-danger-tint px-3 py-2 text-[13px] font-medium text-danger">
@@ -442,6 +480,7 @@ function ReceiptCard({
   receipt: Receipt;
   onDismiss: () => void;
 }) {
+  const { name: staffName } = useCurrentUser();
   return (
     <div className="animate-fade-in rounded-xl border-t-2 border-dashed border-line-strong bg-surface p-5 shadow-sm ring-1 ring-black/5">
       <div className="flex items-start justify-between gap-3">
@@ -482,7 +521,7 @@ function ReceiptCard({
         </div>
         <div className="flex justify-between">
           <dt>Staff</dt>
-          <dd className="font-medium text-ink">{CURRENT_USER.name}</dd>
+          <dd className="font-medium text-ink">{staffName}</dd>
         </div>
         <div className="flex justify-between">
           <dt>Time</dt>

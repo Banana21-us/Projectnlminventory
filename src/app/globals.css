@@ -8,12 +8,16 @@
   --ink-faint: #9ca3af; /* placeholder/hint text */
   --line: #e9e9e5; /* hairline dividers */
   --line-strong: #d6d6d0;
-  --brand: #0d9488; /* mission teal — primary actions */
-  --brand-dark: #0f766e; /* hover */
-  --brand-tint: #f0fdfa; /* light teal bg */
-  --ember: #ff8200; /* warm accent, used sparingly */
+  --ember: #ff8200; /* primary orange — actions, links, active nav */
   --ember-dark: #db6f00;
   --ember-tint: #fff3e5;
+  /* Alias: former teal "brand" color now matches ember everywhere
+     (active nav, default buttons, links) without touching component code. */
+  --brand: var(--ember);
+  --brand-dark: var(--ember-dark);
+  --brand-tint: var(--ember-tint);
+  /* Stock-level colors stay a distinct traffic light (green/orange/red)
+     so "in stock" doesn't read the same as "low stock". */
   --success: #059669; /* in stock */
   --success-tint: #ecfdf5;
   --warning: #d97706; /* low stock */

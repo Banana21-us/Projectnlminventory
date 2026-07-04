@@ -8,11 +8,13 @@ import {
   List,
   Plus,
   Search,
+  Settings,
   Trash2,
   TriangleAlert,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { InventorySettingsSheet } from "@/components/inventory-settings";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge, StockCount, StockGauge } from "@/components/stock";
 import { Badge } from "@/components/ui/badge";
@@ -21,17 +23,17 @@ import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
-import { CURRENT_USER, canManageInventory } from "@/lib/session";
+import { useCurrentUser } from "@/lib/use-user";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
-  LOCATIONS,
   daysUntil,
   expiryFlag,
   stockStatus,
   type Category,
+  type CategoryDto,
   type Item,
-  type Location,
+  type StockroomDto,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -40,18 +42,25 @@ type View = "grid" | "list";
 
 export default function InventoryPage() {
   const { data: items, loading, refetch } = useFetch<Item[]>("/api/items");
+  const {
+    data: stockrooms,
+    refetch: refetchStockrooms,
+  } = useFetch<StockroomDto[]>("/api/stockrooms");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [category, setCategory] = useState<Category | "ALL">("ALL");
-  const [location, setLocation] = useState<Location | "ALL">("ALL");
+  const [location, setLocation] = useState<string>("ALL");
   const [view, setView] = useState<View>("grid");
   const [addOpen, setAddOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
-  const canManage = canManageInventory(CURRENT_USER.role);
+  const { can } = useCurrentUser();
+  const canManage = can("inventory.manage");
+  const canManageSettings = can("settings.manage");
 
   const filtered = useMemo(() => {
     if (!items) return [];
@@ -128,11 +137,17 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold tracking-tight text-ink">Inventory</h1>
           <p className="mt-1 text-sm text-ink-soft">
             {items
-              ? `${items.length} items across ${LOCATIONS.length} locations`
+              ? `${items.length} stock rows across ${stockrooms?.length ?? "…"} stockrooms`
               : "Loading stock…"}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canManageSettings && (
+            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+              <Settings className="h-4 w-4" />
+              <span className="hidden sm:inline">Manage</span>
+            </Button>
+          )}
           {canManage && (
             <Button
               variant="outline"
@@ -233,8 +248,8 @@ export default function InventoryPage() {
           <span className="mx-1 w-px shrink-0 self-stretch bg-line-strong/60" aria-hidden />
           <select
             value={location}
-            onChange={(e) => setLocation(e.target.value as Location | "ALL")}
-            aria-label="Filter by location"
+            onChange={(e) => setLocation(e.target.value)}
+            aria-label="Filter by stockroom"
             className={cn(
               "shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium shadow-sm transition-colors focus:outline-none",
               location === "ALL"
@@ -242,10 +257,10 @@ export default function InventoryPage() {
                 : "bg-brand text-white",
             )}
           >
-            <option value="ALL">All locations</option>
-            {LOCATIONS.map((l) => (
-              <option key={l} value={l}>
-                {l}
+            <option value="ALL">All stockrooms</option>
+            {(stockrooms ?? []).map((s) => (
+              <option key={s.id} value={s.name}>
+                {s.name}
               </option>
             ))}
           </select>
@@ -302,8 +317,9 @@ export default function InventoryPage() {
         <BulkBar
           count={selected.size}
           busy={busy}
+          stockrooms={stockrooms ?? []}
           onAdjust={(delta) => bulk({ action: "adjust", delta }, "Stock adjusted")}
-          onTransfer={(loc) => bulk({ action: "transfer", location: loc }, "Items transferred")}
+          onTransfer={(id) => bulk({ action: "transfer", stockroomId: id }, "Items transferred")}
           onExpire={() => bulk({ action: "expire" }, "Marked expired")}
           onClose={exitSelectMode}
         />
@@ -311,10 +327,20 @@ export default function InventoryPage() {
 
       <AddItemSheet
         open={addOpen}
+        stockrooms={stockrooms ?? []}
         onClose={() => setAddOpen(false)}
         onSaved={() => {
           setAddOpen(false);
           toast({ kind: "success", title: "Item added" });
+          void refetch();
+        }}
+      />
+
+      <InventorySettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onChanged={() => {
+          void refetchStockrooms();
           void refetch();
         }}
       />
@@ -534,6 +560,7 @@ function ListView({
 function BulkBar({
   count,
   busy,
+  stockrooms,
   onAdjust,
   onTransfer,
   onExpire,
@@ -541,8 +568,9 @@ function BulkBar({
 }: {
   count: number;
   busy: boolean;
+  stockrooms: StockroomDto[];
   onAdjust: (delta: number) => void;
-  onTransfer: (loc: Location) => void;
+  onTransfer: (stockroomId: string) => void;
   onExpire: () => void;
   onClose: () => void;
 }) {
@@ -586,19 +614,19 @@ function BulkBar({
             defaultValue=""
             onChange={(e) => {
               if (e.target.value) {
-                onTransfer(e.target.value as Location);
+                onTransfer(e.target.value);
                 e.target.value = "";
               }
             }}
-            aria-label="Transfer to location"
+            aria-label="Transfer to stockroom"
             className="bg-transparent text-xs font-semibold focus:outline-none disabled:opacity-40 [&>option]:text-ink"
           >
             <option value="" disabled>
               Transfer to…
             </option>
-            {LOCATIONS.map((l) => (
-              <option key={l} value={l}>
-                {l}
+            {stockrooms.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </select>
@@ -624,13 +652,16 @@ function BulkBar({
 
 function AddItemSheet({
   open,
+  stockrooms,
   onClose,
   onSaved,
 }: {
   open: boolean;
+  stockrooms: StockroomDto[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { data: categories } = useFetch<CategoryDto[]>("/api/categories");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -645,12 +676,14 @@ function AddItemSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: fd.get("name"),
-          category: fd.get("category"),
-          location: fd.get("location"),
+          categoryId: fd.get("categoryId"),
+          stockroomId: fd.get("stockroomId"),
           shelf: fd.get("shelf"),
           unit: fd.get("unit"),
           stock: Number(fd.get("stock")),
           maxStock: Number(fd.get("maxStock")),
+          unitCost: Number(fd.get("unitCost")) || 0,
+          sellingPrice: Number(fd.get("sellingPrice")) || 0,
           expiry: fd.get("expiry") || undefined,
         }),
       });
@@ -670,23 +703,23 @@ function AddItemSheet({
     <Sheet open={open} onClose={onClose} side="right" title="Add item">
       <form onSubmit={submit} className="space-y-4">
         <Field label="Item name">
-          <Input name="name" required placeholder="e.g. Bar soap" />
+          <Input name="name" required placeholder="e.g. Steps to Christ" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category">
-            <SelectInput name="category">
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {CATEGORY_LABELS[c]}
+            <SelectInput name="categoryId">
+              {(categories ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </SelectInput>
           </Field>
-          <Field label="Location">
-            <SelectInput name="location">
-              {LOCATIONS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
+          <Field label="Stockroom">
+            <SelectInput name="stockroomId">
+              {stockrooms.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
             </SelectInput>
@@ -697,7 +730,7 @@ function AddItemSheet({
             <Input name="shelf" required placeholder="B2-04" className="font-mono uppercase" />
           </Field>
           <Field label="Unit">
-            <Input name="unit" required placeholder="boxes" />
+            <Input name="unit" required placeholder="copies" />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -706,6 +739,14 @@ function AddItemSheet({
           </Field>
           <Field label="Max / par level">
             <Input name="maxStock" type="number" min={1} required className="font-mono" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Unit cost (₱)">
+            <Input name="unitCost" type="number" min={0} step="0.01" defaultValue={0} className="font-mono" />
+          </Field>
+          <Field label="Selling price (₱)">
+            <Input name="sellingPrice" type="number" min={0} step="0.01" defaultValue={0} className="font-mono" />
           </Field>
         </div>
         <Field label="Expiry date (optional)">

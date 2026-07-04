@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Cross } from "lucide-react"
+import Image from "next/image"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -36,10 +36,16 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600">
-            <Cross className="h-6 w-6 text-white" />
+          <div className="relative mx-auto mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm">
+            <Image
+              src="/logo-churches.png"
+              alt="Seventh-day Adventist Church logo"
+              fill
+              sizes="56px"
+              className="object-contain p-1.5"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-white">Mission Supply</h1>
+          <h1 className="text-2xl font-bold text-white">Northern Luzon Mission</h1>
           <p className="mt-1 text-sm text-gray-400">Sign in to your account</p>
         </div>
 

@@ -3,9 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// ── Users & auth ────────────────────────────────────────────────
 
 enum Role {
   ADMIN
@@ -14,83 +16,158 @@ enum Role {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  name        String
-  email       String   @unique
-  password    String
-  role        Role     @default(STAFF)
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdById String?
+  id                 String     @id @default(cuid())
+  name               String
+  email              String     @unique
+  password           String
+  role               Role       @default(STAFF)
+  active             Boolean    @default(true)
+  mustChangePassword Boolean    @default(false)
+  createdById        String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  movements          Movement[]
+  bookings           Booking[]
 }
 
+// ── Catalog ─────────────────────────────────────────────────────
+
 enum CategoryType {
+  BOOK
+  MATERIAL
+  SUPPLY
   ASSET
-  CONSUMABLE
-  PERISHABLE
 }
 
 model Category {
-  id    String       @id @default(cuid())
-  name  String
-  type  CategoryType
-  items Item[]
+  id     String       @id @default(cuid())
+  name   String       @unique
+  type   CategoryType
+  active Boolean      @default(true)
+  items  Item[]
+}
+
+model Stockroom {
+  id        String      @id @default(cuid())
+  name      String      @unique
+  active    Boolean     @default(true)
+  stocks    ItemStock[]
+  movements Movement[]
 }
 
 model Item {
-  id           String          @id @default(cuid())
+  id           String      @id @default(cuid())
   name         String
   categoryId   String
-  category     Category        @relation(fields: [categoryId], references: [id])
-  unit         String?
-  quantity     Int             @default(0)
-  minStock     Int?
-  location     String?
-  condition    String?
+  category     Category    @relation(fields: [categoryId], references: [id])
+  unit         String      @default("pcs")
+  // Money: avgCost maintained by weighted average on RECEIVE;
+  // movements snapshot cost/price so history never changes.
+  sellingPrice Decimal     @default(0) @db.Decimal(10, 2)
+  avgCost      Decimal     @default(0) @db.Decimal(10, 2)
+  minStock     Int         @default(0)
+  frequent     Boolean     @default(false)
   expiryDate   DateTime?
-  serialNumber String?
   notes        String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  movements    StockMovement[]
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  stocks       ItemStock[]
+  movements    Movement[]
 }
 
-enum MovementType {
-  IN
-  OUT
-  ADJUSTMENT
-}
-
-model StockMovement {
-  id          String       @id @default(cuid())
+/// Per-stockroom stock level of an item.
+model ItemStock {
+  id          String    @id @default(cuid())
   itemId      String
-  item        Item         @relation(fields: [itemId], references: [id])
-  userId      String
-  recipientId String?
-  recipient   Recipient?   @relation(fields: [recipientId], references: [id])
-  type        MovementType
-  quantity    Int
-  reason      String?
-  createdAt   DateTime     @default(now())
+  item        Item      @relation(fields: [itemId], references: [id])
+  stockroomId String
+  stockroom   Stockroom @relation(fields: [stockroomId], references: [id])
+  shelf       String    @default("")
+  quantity    Int       @default(0)
+  maxStock    Int       @default(0)
+
+  @@unique([itemId, stockroomId])
 }
 
-model Department {
+// ── Recipients ──────────────────────────────────────────────────
+
+model District {
   id         String      @id @default(cuid())
   name       String      @unique
   active     Boolean     @default(true)
   recipients Recipient[]
 }
 
-model Recipient {
-  id           String          @id @default(cuid())
-  name         String
-  departmentId String
-  department   Department      @relation(fields: [departmentId], references: [id])
-  active       Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  movements    StockMovement[]
+enum RecipientType {
+  PASTOR
+  CHURCH
+  MEMBER
+  DEPARTMENT
+  GUESTHOUSE
+  OTHER
 }
+
+model Recipient {
+  id         String        @id @default(cuid())
+  name       String
+  type       RecipientType @default(OTHER)
+  email      String? // optional — used to email a dispense notice, mainly for PASTOR/GUESTHOUSE
+  districtId String?
+  district   District?     @relation(fields: [districtId], references: [id])
+  active     Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  movements  Movement[]
+}
+
+// ── Movements (single audited ledger) ───────────────────────────
+
+enum MovementType {
+  RECEIVE
+  DISPENSE
+  SALE
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  WRITE_OFF
+}
+
+enum DispensePurpose {
+  FREE_BAPTISMAL
+  PASTOR_ISSUE
+  OFFICE_USE
+  GUESTHOUSE
+  DONATION
+  OTHER
+}
+
+model Movement {
+  id           String           @id @default(cuid())
+  itemId       String
+  item         Item             @relation(fields: [itemId], references: [id])
+  stockroomId  String
+  stockroom    Stockroom        @relation(fields: [stockroomId], references: [id])
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  type         MovementType
+  purpose      DispensePurpose?
+  recipientId  String?
+  recipient    Recipient?       @relation(fields: [recipientId], references: [id])
+  issuedToName String?
+  qty          Int
+  unitCost     Decimal          @default(0) @db.Decimal(10, 2)
+  unitPrice    Decimal?         @db.Decimal(10, 2)
+  orNumber     String?
+  reference    String?
+  note         String?
+  createdAt    DateTime         @default(now())
+
+  @@index([itemId, createdAt])
+  @@index([type, createdAt])
+  @@index([createdAt])
+}
+
+// ── Guesthouse ──────────────────────────────────────────────────
 
 enum RoomStatus {
   AVAILABLE
@@ -99,7 +176,34 @@ enum RoomStatus {
 }
 
 model Room {
-  id     String     @id @default(cuid())
-  name   String
-  status RoomStatus @default(AVAILABLE)
+  id       String     @id @default(cuid())
+  name     String     @unique
+  status   RoomStatus @default(AVAILABLE)
+  bookings Booking[]
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  roomId      String
+  room        Room          @relation(fields: [roomId], references: [id])
+  guestName   String
+  contact     String?
+  checkIn     DateTime
+  checkOut    DateTime
+  status      BookingStatus @default(PENDING)
+  note        String?
+  createdById String
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([roomId, checkIn])
 }

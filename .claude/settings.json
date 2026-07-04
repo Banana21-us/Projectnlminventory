@@ -12,7 +12,32 @@
       "Bash(python -)",
       "Bash(curl -s -X PATCH http://localhost:3000/api/items -H \"Content-Type: application/json\" -d '{\"ids\":[\"i13\",\"i15\"],\"action\":\"adjust\",\"delta\":5}')",
       "Bash(curl -s -X PATCH http://localhost:3000/api/items -H \"Content-Type: application/json\" -d '{\"ids\":[\"i15\"],\"action\":\"transfer\",\"location\":\"Clinic Store\"}')",
-      "Bash(curl -s -X PATCH http://localhost:3000/api/items -H \"Content-Type: application/json\" -d '{\"ids\":[\"i03\"],\"action\":\"expire\"}')"
+      "Bash(curl -s -X PATCH http://localhost:3000/api/items -H \"Content-Type: application/json\" -d '{\"ids\":[\"i03\"],\"action\":\"expire\"}')",
+      "Bash(mysql --version)",
+      "Bash(ls -a | head -20; echo ---; netstat -an | grep -i \":3306\" | head -3; echo ---; ls /c/xampp 2>/dev/null | head)",
+      "Read(//c/xampp/**)",
+      "Bash(npx prisma *)",
+      "Bash(npx next *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 8756 //F)",
+      "Bash(identify public/logo-churches.png)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type}\\\\n\" http://localhost:3000/logo-churches.png)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type}\\\\n\" \"http://localhost:3000/_next/image?url=%2Flogo-churches.png&w=96&q=75\")",
+      "Bash(taskkill //PID 21348 //F)",
+      "Bash(taskkill //PID 25668 //F)",
+      "Bash(taskkill //PID 25812 //F)",
+      "Bash(npx tsx *)",
+      "Bash(curl -s -b /tmp/admin.jar -X PATCH http://localhost:3004/api/stockrooms -H 'Content-Type: application/json' -d '{\"id\":\"cmr6klzkm0002pe7scw0iaz3o\",\"action\":\"deactivate\"}')",
+      "Bash(npx tsx -e ' *)",
+      "Bash(curl -s -o /dev/null -w 'delete throwaway district: %{http_code}\\\\n' -b /tmp/admin.jar -X DELETE http://localhost:3008/api/districts?id=cmr6ll04q0000peikm9gcm2t7)",
+      "Bash(curl -s -b /tmp/admin.jar http://localhost:3008/api/districts)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>console.log\\(JSON.parse\\(d\\).map\\(x=>x.name\\)\\)\\)\")",
+      "Bash(tasklist)",
+      "Skill(dataviz)",
+      "Skill(dataviz:*)",
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\('d:/Projectnlminventory/node_modules/@react-pdf/renderer'\\)\\)\\)\")",
+      "Bash(taskkill //PID 27480 //F)"
     ]
   }
 }
