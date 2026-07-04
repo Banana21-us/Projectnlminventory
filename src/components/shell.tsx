@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Cross, House, Package, ScrollText, Send, User } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { Cross, House, Package, ScrollText, Send, User, Loader } from "lucide-react";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +38,34 @@ function Wordmark({ compact }: { compact?: boolean }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { status } = useSession();
+
+  useEffect(() => {
+    if (status === "unauthenticated" && !pathname.startsWith("/login")) {
+      router.push("/login");
+    }
+  }, [status, pathname, router]);
+
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) window.location.reload();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  if (pathname.startsWith("/login")) {
+    return <>{children}</>;
+  }
+
+  if (status === "loading" || status === "unauthenticated") {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <Loader className="h-6 w-6 animate-spin text-ink-faint" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-dvh">

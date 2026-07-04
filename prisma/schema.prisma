@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  GUESTHOUSE
+}
+
+model User {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  password    String
+  role        Role     @default(STAFF)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+}
+
+enum CategoryType {
+  ASSET
+  CONSUMABLE
+  PERISHABLE
+}
+
+model Category {
+  id    String       @id @default(cuid())
+  name  String
+  type  CategoryType
+  items Item[]
+}
+
+model Item {
+  id           String          @id @default(cuid())
+  name         String
+  categoryId   String
+  category     Category        @relation(fields: [categoryId], references: [id])
+  unit         String?
+  quantity     Int             @default(0)
+  minStock     Int?
+  location     String?
+  condition    String?
+  expiryDate   DateTime?
+  serialNumber String?
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  movements    StockMovement[]
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+model StockMovement {
+  id          String       @id @default(cuid())
+  itemId      String
+  item        Item         @relation(fields: [itemId], references: [id])
+  userId      String
+  recipientId String?
+  recipient   Recipient?   @relation(fields: [recipientId], references: [id])
+  type        MovementType
+  quantity    Int
+  reason      String?
+  createdAt   DateTime     @default(now())
+}
+
+model Department {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  active     Boolean     @default(true)
+  recipients Recipient[]
+}
+
+model Recipient {
+  id           String          @id @default(cuid())
+  name         String
+  departmentId String
+  department   Department      @relation(fields: [departmentId], references: [id])
+  active       Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  movements    StockMovement[]
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+model Room {
+  id     String     @id @default(cuid())
+  name   String
+  status RoomStatus @default(AVAILABLE)
+}

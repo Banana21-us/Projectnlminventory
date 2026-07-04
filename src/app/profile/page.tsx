@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOut, MapPin, ShieldCheck } from "lucide-react";
+import { signOut } from "next-auth/react"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CURRENT_USER, canManageInventory } from "@/lib/session";
@@ -70,7 +71,7 @@ export default function ProfilePage() {
         </ul>
       </section>
 
-      <Button variant="outline" className="w-full">
+      <Button variant="outline" className="w-full" onClick={() => signOut({ callbackUrl: "/login" })}>
         <LogOut className="h-4 w-4" /> Sign out
       </Button>
     </div>
