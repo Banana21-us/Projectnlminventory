@@ -118,3 +118,22 @@ input[type="number"] {
 .animate-toast-in {
   animation: toast-in 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) both;
 }
+
+/* Print isolation — wrap the printable content in #print-area and mark
+   chrome (nav, buttons) .no-print. Reused by the count sheet and receipt. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: absolute;
+    inset: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

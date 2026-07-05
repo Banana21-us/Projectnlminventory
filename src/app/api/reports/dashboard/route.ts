@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 
 const RANGES: DashboardRange[] = ["day", "week", "month", "year"];
 const DISPENSE_TYPES = ["DISPENSE", "SALE"] as const;
-const NEAR_EXPIRY_DAYS = 45;
 
 export const GET = api(async (request) => {
   await requireCan("reports.view");
@@ -38,12 +37,6 @@ export const GET = api(async (request) => {
     const ratio = s.quantity / Math.max(1, s.maxStock);
     return s.quantity <= 0 || ratio <= 0.4;
   }).length;
-  const expiringCount = stocks.filter((s) => {
-    if (!s.item.expiryDate) return false;
-    const days = Math.ceil((s.item.expiryDate.getTime() - Date.now()) / 86_400_000);
-    return days <= NEAR_EXPIRY_DAYS;
-  }).length;
-
   // ── Dispense trend (qty + cost per bucket) ──
   const series = buckets.map((b) => ({ label: b.label, qty: 0, cost: 0, revenue: 0 }));
   let dispensedQtyAllTime = 0;
@@ -106,7 +99,6 @@ export const GET = api(async (request) => {
       stockUnits,
       inventoryValue,
       lowStockCount,
-      expiringCount,
       dispensedQtyAllTime,
       dispensedCostAllTime,
       salesRevenueAllTime,

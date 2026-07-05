@@ -2,8 +2,8 @@
 
 import {
   ArrowRightLeft,
-  CalendarClock,
   CheckSquare,
+  ClipboardList,
   LayoutGrid,
   List,
   Plus,
@@ -13,11 +13,11 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { InventorySettingsSheet } from "@/components/inventory-settings";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge, StockCount, StockGauge } from "@/components/stock";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
@@ -27,8 +27,6 @@ import { useCurrentUser } from "@/lib/use-user";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
-  daysUntil,
-  expiryFlag,
   stockStatus,
   type Category,
   type CategoryDto,
@@ -37,7 +35,7 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type StatusFilter = "ALL" | "low" | "critical" | "expiring";
+type StatusFilter = "ALL" | "low" | "critical";
 type View = "grid" | "list";
 
 export default function InventoryPage() {
@@ -68,9 +66,7 @@ export default function InventoryPage() {
     return items.filter((i) => {
       if (category !== "ALL" && i.category !== category) return false;
       if (location !== "ALL" && i.location !== location) return false;
-      if (status === "expiring") {
-        if (expiryFlag(i) === null) return false;
-      } else if (status !== "ALL" && stockStatus(i) !== status) {
+      if (status !== "ALL" && stockStatus(i) !== status) {
         return false;
       }
       return !q || i.name.toLowerCase().includes(q) || i.shelf.toLowerCase().includes(q);
@@ -78,10 +74,9 @@ export default function InventoryPage() {
   }, [items, search, status, category, location]);
 
   const warnings = useMemo(() => {
-    if (!items) return { low: 0, expiring: 0 };
+    if (!items) return { low: 0 };
     return {
       low: items.filter((i) => stockStatus(i) !== "ok").length,
-      expiring: items.filter((i) => expiryFlag(i) !== null).length,
     };
   }, [items]);
 
@@ -142,6 +137,13 @@ export default function InventoryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/inventory/count-sheet"
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-surface px-3 text-[13px] font-medium text-ink shadow-sm ring-1 ring-black/10 transition-colors hover:bg-bg"
+          >
+            <ClipboardList className="h-4 w-4" />
+            <span className="hidden sm:inline">Count sheet</span>
+          </Link>
           {canManageSettings && (
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
               <Settings className="h-4 w-4" />
@@ -167,26 +169,15 @@ export default function InventoryPage() {
       </div>
 
       {/* Warnings surfaced up front */}
-      {!loading && (warnings.low > 0 || warnings.expiring > 0) && (
+      {!loading && warnings.low > 0 && (
         <div className="flex flex-wrap gap-2">
-          {warnings.low > 0 && (
-            <button
-              onClick={() => setStatus(status === "low" ? "ALL" : "low")}
-              className="flex items-center gap-2 rounded-xl bg-warning-tint px-3.5 py-2.5 text-[13px] font-medium text-warning shadow-sm"
-            >
-              <TriangleAlert className="h-4 w-4" />
-              {warnings.low} item{warnings.low === 1 ? "" : "s"} low or out of stock
-            </button>
-          )}
-          {warnings.expiring > 0 && (
-            <button
-              onClick={() => setStatus(status === "expiring" ? "ALL" : "expiring")}
-              className="flex items-center gap-2 rounded-xl bg-danger-tint px-3.5 py-2.5 text-[13px] font-medium text-danger shadow-sm"
-            >
-              <CalendarClock className="h-4 w-4" />
-              {warnings.expiring} expiring or expired
-            </button>
-          )}
+          <button
+            onClick={() => setStatus(status === "low" ? "ALL" : "low")}
+            className="flex items-center gap-2 rounded-xl bg-warning-tint px-3.5 py-2.5 text-[13px] font-medium text-warning shadow-sm"
+          >
+            <TriangleAlert className="h-4 w-4" />
+            {warnings.low} item{warnings.low === 1 ? "" : "s"} low or out of stock
+          </button>
         </div>
       )}
 
@@ -232,7 +223,6 @@ export default function InventoryPage() {
               ["ALL", "All stock"],
               ["low", "Low"],
               ["critical", "Critical"],
-              ["expiring", "Expiring"],
             ] as const
           ).map(([value, label]) => (
             <Chip key={value} active={status === value} onClick={() => setStatus(value)}>
@@ -320,7 +310,7 @@ export default function InventoryPage() {
           stockrooms={stockrooms ?? []}
           onAdjust={(delta) => bulk({ action: "adjust", delta }, "Stock adjusted")}
           onTransfer={(id) => bulk({ action: "transfer", stockroomId: id }, "Items transferred")}
-          onExpire={() => bulk({ action: "expire" }, "Marked expired")}
+          onWriteOff={() => bulk({ action: "writeOff" }, "Stock written off")}
           onClose={exitSelectMode}
         />
       )}
@@ -385,26 +375,6 @@ function SelectDot({ selected }: { selected: boolean }) {
   );
 }
 
-function ExpiryNote({ item }: { item: Item }) {
-  if (!item.expiry) return null;
-  const flag = expiryFlag(item);
-  if (flag === "expired") {
-    return (
-      <Badge variant="danger">
-        <CalendarClock className="h-3 w-3" /> Expired
-      </Badge>
-    );
-  }
-  if (flag === "near") {
-    return (
-      <Badge variant="warning">
-        <CalendarClock className="h-3 w-3" /> {daysUntil(item.expiry)} d left
-      </Badge>
-    );
-  }
-  return <span className="font-mono text-[11px] text-ink-faint">EXP {item.expiry}</span>;
-}
-
 function GridCard({
   item,
   selectable,
@@ -437,11 +407,6 @@ function GridCard({
         <StockGauge item={item} className="flex-1" />
         <StockCount item={item} />
       </div>
-      {item.expiry && (
-        <div className="mt-2.5">
-          <ExpiryNote item={item} />
-        </div>
-      )}
     </>
   );
 
@@ -489,7 +454,6 @@ function ListView({
               <th className="px-3 py-3">Location</th>
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Stock</th>
-              <th className="px-4 py-3">Expiry</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -521,9 +485,6 @@ function ListView({
                     <StockGauge item={item} className="flex-1" />
                     <StockCount item={item} />
                   </div>
-                </td>
-                <td className="px-4 py-3">
-                  <ExpiryNote item={item} />
                 </td>
               </tr>
             ))}
@@ -563,7 +524,7 @@ function BulkBar({
   stockrooms,
   onAdjust,
   onTransfer,
-  onExpire,
+  onWriteOff,
   onClose,
 }: {
   count: number;
@@ -571,7 +532,7 @@ function BulkBar({
   stockrooms: StockroomDto[];
   onAdjust: (delta: number) => void;
   onTransfer: (stockroomId: string) => void;
-  onExpire: () => void;
+  onWriteOff: () => void;
   onClose: () => void;
 }) {
   const [delta, setDelta] = useState(1);
@@ -633,10 +594,10 @@ function BulkBar({
         </label>
         <button
           disabled={busy || count === 0}
-          onClick={onExpire}
+          onClick={onWriteOff}
           className="flex items-center gap-1.5 rounded-lg bg-danger/90 px-3 py-2 text-xs font-semibold hover:bg-danger disabled:opacity-40"
         >
-          <Trash2 className="h-3.5 w-3.5" /> Mark expired
+          <Trash2 className="h-3.5 w-3.5" /> Write off
         </button>
         <button
           onClick={onClose}
@@ -676,6 +637,7 @@ function AddItemSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: fd.get("name"),
+          description: fd.get("description") || undefined,
           categoryId: fd.get("categoryId"),
           stockroomId: fd.get("stockroomId"),
           shelf: fd.get("shelf"),
@@ -684,7 +646,6 @@ function AddItemSheet({
           maxStock: Number(fd.get("maxStock")),
           unitCost: Number(fd.get("unitCost")) || 0,
           sellingPrice: Number(fd.get("sellingPrice")) || 0,
-          expiry: fd.get("expiry") || undefined,
         }),
       });
       if (!res.ok) {
@@ -704,6 +665,14 @@ function AddItemSheet({
       <form onSubmit={submit} className="space-y-4">
         <Field label="Item name">
           <Input name="name" required placeholder="e.g. Steps to Christ" />
+        </Field>
+        <Field label="Description (optional)">
+          <textarea
+            name="description"
+            rows={2}
+            placeholder="e.g. language, edition, remarks"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25"
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category">
@@ -749,9 +718,6 @@ function AddItemSheet({
             <Input name="sellingPrice" type="number" min={0} step="0.01" defaultValue={0} className="font-mono" />
           </Field>
         </div>
-        <Field label="Expiry date (optional)">
-          <Input name="expiry" type="date" className="font-mono" />
-        </Field>
         {error && (
           <p className="rounded-lg bg-danger-tint px-3 py-2 text-[13px] font-medium text-danger">
             {error}

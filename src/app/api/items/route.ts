@@ -42,7 +42,7 @@ export const POST = api(async (request) => {
         avgCost: new Prisma.Decimal(unitCost),
         minStock: data.minStock ?? 0,
         frequent: data.frequent ?? false,
-        expiryDate: data.expiry ? new Date(data.expiry) : null,
+        notes: data.description ?? null,
       },
     });
     const stock = await tx.itemStock.create({
@@ -111,7 +111,7 @@ export const PATCH = api(async (request) => {
         userId: user.id,
         qty: stock.quantity,
         type: "WRITE_OFF",
-        reference: "Expired write-off",
+        reference: "Stock write-off",
       });
     }
   }

@@ -19,7 +19,7 @@ export interface Item {
   unit: string;
   sellingPrice: number;
   avgCost: number;
-  expiry?: string; // ISO date
+  description?: string;
   frequent?: boolean;
 }
 
@@ -112,7 +112,6 @@ export interface DashboardData {
     stockUnits: number;
     inventoryValue: number;
     lowStockCount: number;
-    expiringCount: number;
     dispensedQtyAllTime: number;
     dispensedCostAllTime: number;
     salesRevenueAllTime: number;
@@ -157,20 +156,6 @@ export const STATUS_LABELS: Record<StockStatus, string> = {
   low: "Low stock",
   critical: "Critical",
 };
-
-const NEAR_EXPIRY_DAYS = 45;
-
-export function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
-
-export function expiryFlag(item: Pick<Item, "expiry">): "expired" | "near" | null {
-  if (!item.expiry) return null;
-  const d = daysUntil(item.expiry);
-  if (d < 0) return "expired";
-  if (d <= NEAR_EXPIRY_DAYS) return "near";
-  return null;
-}
 
 export function formatRelative(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);

@@ -39,7 +39,16 @@
       "Bash(node -e \"console.log\\(Object.keys\\(require\\('d:/Projectnlminventory/node_modules/@react-pdf/renderer'\\)\\)\\)\")",
       "Bash(taskkill //PID 27480 //F)",
       "Read(//c/Users/Administrator/AppData/Local/Temp/**)",
-      "Bash(taskkill //PID 9420 //F)"
+      "Bash(taskkill //PID 9420 //F)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(cd /tmp)",
+      "Bash(curl -s -b cookies.txt -X POST http://localhost:3000/api/items -H 'Content-Type: application/json' -d '{\"name\":\"Test Verify Item\",\"description\":\"Tagalog edition, verify run\",\"categoryId\":\"\",\"stockroomId\":\"\",\"shelf\":\"TV-01\",\"unit\":\"copies\",\"stock\":5,\"maxStock\":20,\"unitCost\":10,\"sellingPrice\":20}')",
+      "Bash(curl -s -b cookies.txt http://localhost:3000/api/categories)",
+      "Bash(curl -s -b cookies.txt http://localhost:3000/api/stockrooms)",
+      "Bash(taskkill //PID 23464 //F)",
+      "Bash(cp /tmp/cleanup.mjs ./cleanup-tmp.mjs)",
+      "Bash(rm ./cleanup-tmp.mjs)"
     ]
   }
 }

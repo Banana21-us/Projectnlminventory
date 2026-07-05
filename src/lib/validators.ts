@@ -13,14 +13,14 @@ export const itemCreateSchema = z.object({
   sellingPrice: z.number().min(0).optional(),
   unitCost: z.number().min(0).optional(),
   minStock: z.number().int().min(0).optional(),
-  expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  description: z.string().trim().max(500).optional(),
   frequent: z.boolean().optional(),
 });
 
 export const itemBulkSchema = z
   .object({
     ids: z.array(z.string().min(1)).min(1, "Select at least one item"),
-    action: z.enum(["adjust", "transfer", "expire"]),
+    action: z.enum(["adjust", "transfer", "writeOff"]),
     delta: z.number().int().optional(),
     stockroomId: z.string().optional(),
   })
@@ -162,3 +162,26 @@ export const userUpdateSchema = z
     message: "New password is required",
     path: ["password"],
   });
+
+// Reprints already-fetched movement data as a signed receipt PDF — the
+// client already legitimately holds this movement, so no DB refetch here.
+export const movementReceiptPdfSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  itemName: z.string().min(1),
+  unit: z.string().min(1),
+  category: z.string().optional(),
+  shelf: z.string().min(1),
+  location: z.string().min(1),
+  qty: z.number(),
+  unitCost: z.number(),
+  purpose: z.string().optional(),
+  issuedTo: z.string().optional(),
+  orNumber: z.string().optional(),
+  unitPrice: z.number().optional(),
+  reference: z.string().optional(),
+  note: z.string().optional(),
+  staff: z.string().min(1),
+  at: z.string().min(1),
+  signature: z.string().startsWith("data:image/png"),
+});

@@ -24,9 +24,7 @@ export function toItemDto(row: StockRow, opts: { withPricing: boolean }): ItemDt
     unit: row.item.unit,
     sellingPrice: opts.withPricing ? Number(row.item.sellingPrice) : 0,
     avgCost: opts.withPricing ? Number(row.item.avgCost) : 0,
-    ...(row.item.expiryDate
-      ? { expiry: row.item.expiryDate.toISOString().slice(0, 10) }
-      : {}),
+    ...(row.item.notes ? { description: row.item.notes } : {}),
     ...(row.item.frequent ? { frequent: true } : {}),
   };
 }

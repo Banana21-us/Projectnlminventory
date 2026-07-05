@@ -67,7 +67,6 @@ model Item {
   avgCost      Decimal     @default(0) @db.Decimal(10, 2)
   minStock     Int         @default(0)
   frequent     Boolean     @default(false)
-  expiryDate   DateTime?
   notes        String?
   active       Boolean     @default(true)
   createdAt    DateTime    @default(now())

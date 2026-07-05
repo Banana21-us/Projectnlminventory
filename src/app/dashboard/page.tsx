@@ -4,7 +4,7 @@ import Link from "next/link";
 import {
   ArrowRight,
   Boxes,
-  CalendarClock,
+  ClipboardList,
   Coins,
   Package,
   Receipt,
@@ -23,7 +23,6 @@ import { formatCompact, formatCurrency, formatCurrencyCompact } from "@/lib/form
 import { useCurrentUser } from "@/lib/use-user";
 import {
   MOVEMENT_LABELS,
-  expiryFlag,
   formatRelative,
   stockStatus,
   type DashboardData,
@@ -50,8 +49,12 @@ export default function DashboardPage() {
   );
 
   const low = items?.filter((i) => stockStatus(i) !== "ok") ?? [];
-  const expiring = items?.filter((i) => expiryFlag(i) !== null) ?? [];
   const t = dashboard?.totals;
+  const today = new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
     <div className="space-y-6">
@@ -113,19 +116,12 @@ export default function DashboardPage() {
           delay={160}
         />
         <StatTile
-          icon={<CalendarClock className="h-4 w-4" />}
-          label="Near expiry"
-          value={expiring.length}
-          tone={expiring.length > 0 ? "danger" : "success"}
-          delay={200}
-        />
-        <StatTile
           icon={<Send className="h-4 w-4" />}
           label="Dispensed (all-time)"
           value={t?.dispensedQtyAllTime ?? 0}
           format={formatCompact}
           tone="brand"
-          delay={240}
+          delay={200}
         />
         <StatTile
           icon={<Receipt className="h-4 w-4" />}
@@ -133,9 +129,28 @@ export default function DashboardPage() {
           value={t?.dispensedCostAllTime ?? 0}
           format={formatCurrencyCompact}
           tone="ember"
-          delay={280}
+          delay={240}
         />
       </div>
+
+      <Link
+        href="/inventory/count-sheet"
+        className="flex items-center justify-between gap-3 rounded-xl bg-surface p-4 shadow-sm ring-1 ring-black/5 transition-colors hover:bg-bg sm:p-5"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-tint text-brand-dark">
+            <ClipboardList className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-ink">Inventory Count Sheet</p>
+            <p className="mt-0.5 text-xs text-ink-soft">
+              As of {today} · {t?.itemsTracked ?? items?.length ?? 0} items,{" "}
+              {t?.stockUnits ?? 0} stock units
+            </p>
+          </div>
+        </div>
+        <ArrowRight className="h-4 w-4 shrink-0 text-ink-faint" />
+      </Link>
 
       {/* Period toggle — scopes the two trend charts below */}
       <div className="flex items-center gap-2">
@@ -254,34 +269,34 @@ export default function DashboardPage() {
       </ChartCard>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* Restock list */}
-        <section className="rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
-          <header className="flex items-center justify-between border-b border-line px-4 py-3.5">
-            <h2 className="text-sm font-semibold text-ink">Restock soon</h2>
+        <ChartCard
+          title="Restock soon"
+          action={
             <Link
               href="/inventory"
               className="flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline"
             >
               Inventory <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          </header>
+          }
+        >
           {loading ? (
-            <div className="space-y-3 p-4">
+            <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-12 animate-pulse rounded-lg bg-line/60" />
               ))}
             </div>
           ) : low.length === 0 ? (
-            <p className="px-4 py-10 text-center text-[13px] text-ink-faint">
+            <p className="py-10 text-center text-[13px] text-ink-faint">
               All stocked up — nothing needs reordering.
             </p>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="-mx-4 divide-y divide-line sm:-mx-5">
               {low
                 .sort((a, b) => a.stock / a.maxStock - b.stock / b.maxStock)
                 .slice(0, 5)
                 .map((item) => (
-                  <li key={item.id} className="px-4 py-3">
+                  <li key={item.id} className="px-4 py-3 sm:px-5">
                     <div className="flex items-center justify-between gap-3">
                       <p className="min-w-0 truncate text-sm font-medium text-ink">{item.name}</p>
                       <StatusBadge item={item} />
@@ -295,22 +310,22 @@ export default function DashboardPage() {
                 ))}
             </ul>
           )}
-        </section>
+        </ChartCard>
 
-        {/* Recent movements */}
-        <section className="rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
-          <header className="flex items-center justify-between border-b border-line px-4 py-3.5">
-            <h2 className="text-sm font-semibold text-ink">Recent movements</h2>
+        <ChartCard
+          title="Recent movements"
+          action={
             <Link
               href="/log"
               className="flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline"
             >
               Full log <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          </header>
-          <ul className="divide-y divide-line">
+          }
+        >
+          <ul className="-mx-4 divide-y divide-line sm:-mx-5">
             {(movements ?? []).slice(0, 5).map((m) => (
-              <li key={m.id} className="flex items-center gap-3 px-4 py-3">
+              <li key={m.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
                     m.direction === "OUT" ? "bg-ember-tint text-ember-dark" : "bg-success-tint text-success"
@@ -328,7 +343,7 @@ export default function DashboardPage() {
               </li>
             ))}
           </ul>
-        </section>
+        </ChartCard>
       </div>
     </div>
   );
