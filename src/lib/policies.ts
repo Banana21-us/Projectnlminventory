@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   "inventory.pricing": ["ADMIN"],
   "dispense.create": ["ADMIN", "STAFF"],
   "movements.view": ["ADMIN", "STAFF"],
+  "movements.cancel": ["ADMIN", "STAFF"],
   "reports.view": ["ADMIN", "STAFF"],
   "recipients.view": ["ADMIN", "STAFF"],
   "recipients.manage": ["ADMIN", "STAFF"],

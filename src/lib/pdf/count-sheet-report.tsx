@@ -1,6 +1,6 @@
 import { Document, Page, Text, View, Image, StyleSheet, Font } from "@react-pdf/renderer";
 import { LOGO_PNG_BASE64 } from "./logo-base64";
-import { CATEGORY_LABELS, STATUS_LABELS, stockStatus, type Item } from "@/lib/types";
+import { CATEGORY_LABELS, type CountSheetRow } from "@/lib/types";
 
 const logoDataUri = `data:image/png;base64,${LOGO_PNG_BASE64}`;
 
@@ -31,13 +31,13 @@ const styles = StyleSheet.create({
     borderRight: "1 solid #d6d6d0",
     borderBottom: "1 solid #d6d6d0",
   },
-  colItem: { width: "26%" },
-  colCategory: { width: "13%" },
-  colShelf: { width: "10%" },
-  colLocation: { width: "16%" },
-  colStock: { width: "10%", textAlign: "right" },
-  colMax: { width: "10%", textAlign: "right" },
-  colStatus: { width: "15%" },
+  colItem: { width: "22%" },
+  colCategory: { width: "10%" },
+  colShelf: { width: "7%" },
+  colLocation: { width: "12%" },
+  colQty: { width: "8%", textAlign: "right" },
+  colEnding: { width: "11%", textAlign: "right" },
+  colCount: { width: "14%" },
   signatures: { flexDirection: "row", gap: 24, marginTop: 36 },
   sigBlock: { flexGrow: 1, flexBasis: 0 },
   sigLine: { borderTop: "1 solid #18181b", marginBottom: 4, marginTop: 28 },
@@ -54,13 +54,18 @@ const styles = StyleSheet.create({
 });
 
 export interface CountSheetReportInput {
-  items: Item[];
+  rows: CountSheetRow[];
+  from: string; // YYYY-MM-DD
+  to: string; // YYYY-MM-DD
   generatedBy: string;
 }
 
-export function CountSheetDocument({ items, generatedBy }: CountSheetReportInput) {
-  const asOf = new Date().toLocaleDateString("en-PH", { dateStyle: "medium" });
-  const sorted = [...items].sort(
+function longDate(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-PH", { dateStyle: "medium" });
+}
+
+export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetReportInput) {
+  const sorted = [...rows].sort(
     (a, b) => a.location.localeCompare(b.location) || a.name.localeCompare(b.name),
   );
 
@@ -77,7 +82,7 @@ export function CountSheetDocument({ items, generatedBy }: CountSheetReportInput
 
         <Text style={styles.title}>Inventory Count Sheet</Text>
         <Text style={styles.subtitle}>
-          As of {asOf} · generated{" "}
+          {longDate(from)} — {longDate(to)} · generated{" "}
           {new Date().toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
         </Text>
 
@@ -87,21 +92,25 @@ export function CountSheetDocument({ items, generatedBy }: CountSheetReportInput
             <Text style={[styles.th, styles.colCategory]}>Category</Text>
             <Text style={[styles.th, styles.colShelf]}>Shelf</Text>
             <Text style={[styles.th, styles.colLocation]}>Location</Text>
-            <Text style={[styles.th, styles.colStock]}>On hand</Text>
-            <Text style={[styles.th, styles.colMax]}>Max</Text>
-            <Text style={[styles.th, styles.colStatus]}>Status</Text>
+            <Text style={[styles.th, styles.colQty]}>Beginning</Text>
+            <Text style={[styles.th, styles.colQty]}>In</Text>
+            <Text style={[styles.th, styles.colQty]}>Out</Text>
+            <Text style={[styles.th, styles.colEnding]}>Ending</Text>
+            <Text style={[styles.th, styles.colCount]}>Physical count</Text>
           </View>
-          {sorted.map((item) => (
-            <View style={styles.tr} key={item.id} wrap={false}>
-              <Text style={[styles.td, styles.colItem]}>{item.name}</Text>
-              <Text style={[styles.td, styles.colCategory]}>{CATEGORY_LABELS[item.category]}</Text>
-              <Text style={[styles.td, styles.colShelf]}>{item.shelf}</Text>
-              <Text style={[styles.td, styles.colLocation]}>{item.location}</Text>
-              <Text style={[styles.td, styles.colStock]}>
-                {item.stock} {item.unit}
+          {sorted.map((row) => (
+            <View style={styles.tr} key={row.id} wrap={false}>
+              <Text style={[styles.td, styles.colItem]}>{row.name}</Text>
+              <Text style={[styles.td, styles.colCategory]}>{CATEGORY_LABELS[row.category]}</Text>
+              <Text style={[styles.td, styles.colShelf]}>{row.shelf}</Text>
+              <Text style={[styles.td, styles.colLocation]}>{row.location}</Text>
+              <Text style={[styles.td, styles.colQty]}>{row.beginning}</Text>
+              <Text style={[styles.td, styles.colQty]}>{row.inQty}</Text>
+              <Text style={[styles.td, styles.colQty]}>{row.outQty}</Text>
+              <Text style={[styles.td, styles.colEnding]}>
+                {row.ending} {row.unit}
               </Text>
-              <Text style={[styles.td, styles.colMax]}>{item.maxStock}</Text>
-              <Text style={[styles.td, styles.colStatus]}>{STATUS_LABELS[stockStatus(item)]}</Text>
+              <Text style={[styles.td, styles.colCount]}> </Text>
             </View>
           ))}
         </View>

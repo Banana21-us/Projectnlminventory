@@ -13,7 +13,7 @@ function isoDate(d: Date): string {
 }
 
 export default function LogPage() {
-  const { data: movements, loading } = useFetch<Movement[]>("/api/movements");
+  const { data: movements, loading, refetch } = useFetch<Movement[]>("/api/movements");
   const [selected, setSelected] = useState<Movement | null>(null);
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -125,7 +125,7 @@ export default function LogPage() {
                   {MOVEMENT_LABELS[m.type] ?? m.type}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-ink">
+                  <p className={`text-sm ${m.cancelledAt ? "text-ink-faint line-through" : "text-ink"}`}>
                     <span className="font-mono text-xs font-semibold">
                       {m.qty} {m.unit}
                     </span>{" "}
@@ -133,6 +133,11 @@ export default function LogPage() {
                     {m.issuedTo && <span className="text-ink-soft"> → {m.issuedTo}</span>}
                   </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                    {m.cancelledAt && (
+                      <span className="rounded bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-danger">
+                        Cancelled
+                      </span>
+                    )}
                     <ShelfTag code={m.shelf} />
                     <span>by {m.staff}</span>
                     {m.note && <span className="italic">· {m.note}</span>}
@@ -147,7 +152,7 @@ export default function LogPage() {
         </ul>
       )}
 
-      <ReceiptSheet movement={selected} onClose={() => setSelected(null)} />
+      <ReceiptSheet movement={selected} onClose={() => setSelected(null)} onCancelled={refetch} />
     </div>
   );
 }

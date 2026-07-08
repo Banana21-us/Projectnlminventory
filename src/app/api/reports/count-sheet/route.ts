@@ -1,12 +1,10 @@
-import { renderToBuffer } from "@react-pdf/renderer";
 import { api, requireCan, ApiError } from "@/lib/dal";
 import { buildCountSheet } from "@/lib/count-sheet";
-import { CountSheetDocument } from "@/lib/pdf/count-sheet-report";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const GET = api(async (request) => {
-  const user = await requireCan("reports.view");
+  await requireCan("reports.view");
   const url = new URL(request.url);
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
@@ -19,17 +17,5 @@ export const GET = api(async (request) => {
   end.setDate(end.getDate() + 1);
   if (start >= end) throw new ApiError(422, "'from' must be before 'to'");
 
-  const rows = await buildCountSheet(start, end);
-
-  const buffer = await renderToBuffer(
-    CountSheetDocument({ rows, from, to, generatedBy: user.name }),
-  );
-
-  return new Response(new Uint8Array(buffer), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="nlm-count-sheet-${from}_to_${to}.pdf"`,
-    },
-  });
+  return Response.json(await buildCountSheet(start, end));
 });

@@ -95,6 +95,59 @@ export async function applyStockAction(input: StockActionInput) {
   });
 }
 
+/**
+ * Void a DISPENSE/SALE (returned goods or a double entry): restores the
+ * stock and appends a compensating ADJUSTMENT to the ledger — the original
+ * row is stamped `cancelledAt`, never deleted, so history stays intact.
+ */
+export async function cancelStockMovement(movementId: string, userId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const movement = await tx.movement.findUnique({
+      where: { id: movementId },
+      include: { item: true },
+    });
+    if (!movement) throw new ApiError(404, "Movement not found");
+    if (movement.type !== "DISPENSE" && movement.type !== "SALE") {
+      throw new ApiError(422, "Only dispenses and sales can be cancelled");
+    }
+    if (movement.cancelledAt) throw new ApiError(409, "This movement is already cancelled");
+
+    const returnedQty = -movement.qty; // dispense qty is negative; put it back
+    await tx.itemStock.upsert({
+      where: {
+        itemId_stockroomId: { itemId: movement.itemId, stockroomId: movement.stockroomId },
+      },
+      update: { quantity: { increment: returnedQty } },
+      create: {
+        itemId: movement.itemId,
+        stockroomId: movement.stockroomId,
+        quantity: returnedQty,
+      },
+    });
+
+    await tx.movement.create({
+      data: {
+        itemId: movement.itemId,
+        stockroomId: movement.stockroomId,
+        userId,
+        type: "ADJUSTMENT",
+        qty: returnedQty,
+        unitCost: movement.unitCost, // same snapshot, so the two rows net to zero
+        recipientId: movement.recipientId,
+        issuedToName: movement.issuedToName,
+        reference: movement.id,
+        note: `Cancelled ${movement.type.toLowerCase()}: ${reason}`,
+      },
+    });
+
+    return tx.movement.update({
+      where: { id: movement.id },
+      data: { cancelledAt: new Date() },
+      include: MOVEMENT_INCLUDE,
+    });
+  });
+}
+
 /** Move quantity from one stockroom's shelf to another (bulk transfer). */
 export async function transferStock(stockId: string, targetStockroomId: string, userId: string) {
   return prisma.$transaction(async (tx) => {

@@ -79,11 +79,15 @@ export interface MovementsReportInput {
 }
 
 export function MovementsReportDocument({ from, to, movements, generatedBy }: MovementsReportInput) {
-  const dispensed = movements.filter((m) => m.type === "DISPENSE" || m.type === "SALE");
+  // Cancelled dispenses/sales stay listed for the audit trail but are
+  // excluded from every total, same as the dashboard.
+  const dispensed = movements.filter(
+    (m) => (m.type === "DISPENSE" || m.type === "SALE") && !m.cancelledAt,
+  );
   const totalQty = dispensed.reduce((s, m) => s + m.qty, 0);
   const totalCost = dispensed.reduce((s, m) => s + m.qty * m.unitCost, 0);
   const totalRevenue = movements
-    .filter((m) => m.type === "SALE")
+    .filter((m) => m.type === "SALE" && !m.cancelledAt)
     .reduce((s, m) => s + m.qty * (m.unitPrice ?? 0), 0);
   const received = movements.filter((m) => m.type === "RECEIVE");
   const receivedCost = received.reduce((s, m) => s + m.qty * m.unitCost, 0);
@@ -127,7 +131,9 @@ export function MovementsReportDocument({ from, to, movements, generatedBy }: Mo
               <Text style={[styles.td, styles.colDate]}>
                 {new Date(m.at).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
               </Text>
-              <Text style={[styles.td, styles.colType]}>{m.type}</Text>
+              <Text style={[styles.td, styles.colType]}>
+                {m.cancelledAt ? `${m.type} (CANCELLED)` : m.type}
+              </Text>
               <Text style={[styles.td, styles.colItem]}>{m.itemName}</Text>
               <Text style={[styles.td, styles.colQty]}>{m.qty}</Text>
               <Text style={[styles.td, styles.colCost]}>{money(m.unitCost)}</Text>

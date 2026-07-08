@@ -18,13 +18,14 @@ export const GET = api(async (request) => {
       where: { item: { active: true }, stockroom: { active: true } },
       include: { item: { include: { category: true } } },
     }),
+    // cancelledAt: null — voided dispenses/sales never count toward totals
     prisma.movement.findMany({
-      where: { type: { in: [...DISPENSE_TYPES] }, createdAt: { gte: since } },
+      where: { type: { in: [...DISPENSE_TYPES] }, cancelledAt: null, createdAt: { gte: since } },
       select: { qty: true, unitCost: true, unitPrice: true, type: true, createdAt: true, itemId: true },
     }),
     prisma.movement.groupBy({ by: ["type"], _count: { _all: true } }),
     prisma.movement.findMany({
-      where: { type: { in: [...DISPENSE_TYPES] } },
+      where: { type: { in: [...DISPENSE_TYPES] }, cancelledAt: null },
       select: { qty: true, itemId: true, item: { select: { name: true } } },
     }),
   ]);

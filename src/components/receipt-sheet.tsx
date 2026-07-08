@@ -1,12 +1,13 @@
 "use client";
 
-import { CheckCircle2, Download, Printer } from "lucide-react";
+import { Ban, CheckCircle2, Download, Printer } from "lucide-react";
 import { useState } from "react";
 import { ShelfTag } from "@/components/shelf-tag";
 import { SignaturePad } from "@/components/signature-pad";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/format";
+import { useCurrentUser } from "@/lib/use-user";
 import { MOVEMENT_LABELS, type Movement } from "@/lib/types";
 
 type PendingAction = "print" | "download" | null;
@@ -14,15 +15,24 @@ type PendingAction = "print" | "download" | null;
 export function ReceiptSheet({
   movement,
   onClose,
+  onCancelled,
 }: {
   movement: Movement | null;
   onClose: () => void;
+  /** Called after a dispense/sale is successfully cancelled (e.g. to refetch the log). */
+  onCancelled?: () => void;
 }) {
+  const { can } = useCurrentUser();
   const [signature, setSignature] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastMovementId, setLastMovementId] = useState<string | null>(null);
+  const [cancelMode, setCancelMode] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  // The prop is a snapshot from the list; after we cancel, reflect it locally.
+  const [justCancelledAt, setJustCancelledAt] = useState<string | null>(null);
 
   // Reset per-receipt state when a different movement opens — done during
   // render (React's recommended pattern) rather than an effect, since this
@@ -32,7 +42,39 @@ export function ReceiptSheet({
     setSignature(null);
     setPending(null);
     setError(null);
+    setCancelMode(false);
+    setCancelReason("");
+    setJustCancelledAt(null);
   }
+
+  const cancelledAt = movement?.cancelledAt ?? justCancelledAt ?? undefined;
+  const canCancel =
+    !!movement &&
+    (movement.type === "DISPENSE" || movement.type === "SALE") &&
+    !cancelledAt &&
+    can("movements.cancel");
+
+  const performCancel = async () => {
+    if (!movement || !cancelReason.trim() || cancelling) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/movements/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: movement.id, reason: cancelReason.trim() }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not cancel this movement");
+      setJustCancelledAt(body?.cancelledAt ?? new Date().toISOString());
+      setCancelMode(false);
+      onCancelled?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel this movement");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const totalCost = movement ? movement.qty * movement.unitCost : 0;
   const totalAmount = movement?.unitPrice !== undefined ? movement.qty * movement.unitPrice : undefined;
@@ -94,11 +136,30 @@ export function ReceiptSheet({
       {movement && (
         <div id="print-area" className="animate-fade-in rounded-xl border-t-2 border-dashed border-line-strong bg-surface">
           <div className="flex items-center gap-2.5 px-1 pb-3">
-            <CheckCircle2 className="h-5 w-5 text-success" />
+            {cancelledAt ? (
+              <Ban className="h-5 w-5 text-danger" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5 text-success" />
+            )}
             <p className="text-sm font-semibold text-ink">
               {MOVEMENT_LABELS[movement.type] ?? movement.type}
             </p>
+            {cancelledAt && (
+              <span className="rounded bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-danger">
+                Cancelled
+              </span>
+            )}
           </div>
+          {cancelledAt && (
+            <p className="px-1 pb-3 text-xs text-ink-soft">
+              Cancelled on{" "}
+              {new Date(cancelledAt).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}{" "}
+              — stock was returned and a reversing adjustment was added to the ledger.
+            </p>
+          )}
 
           <div className="space-y-1 border-y border-dashed border-line px-1 py-4">
             <div className="flex items-center justify-between gap-3">
@@ -180,6 +241,48 @@ export function ReceiptSheet({
                 >
                   <Download className="h-4 w-4" /> {downloading ? "Preparing…" : "Download PDF"}
                 </Button>
+              </div>
+            )}
+            {canCancel && !pending && (
+              <div className="border-t border-dashed border-line pt-3">
+                {cancelMode ? (
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-ink-soft">
+                      Why is this being cancelled? Stock will be returned to the shelf and a
+                      reversing entry added to the log.
+                    </p>
+                    <input
+                      type="text"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder="e.g. Returned by recipient / double entry"
+                      maxLength={300}
+                      className="h-10 w-full rounded-lg border border-line bg-bg px-3 text-[13px] text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        variant="destructive"
+                        className="flex-1"
+                        disabled={!cancelReason.trim() || cancelling}
+                        onClick={() => void performCancel()}
+                      >
+                        {cancelling ? "Cancelling…" : "Confirm cancellation"}
+                      </Button>
+                      <Button variant="outline" onClick={() => setCancelMode(false)}>
+                        Back
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    className="w-full text-danger hover:bg-danger/10 hover:text-danger"
+                    onClick={() => setCancelMode(true)}
+                  >
+                    <Ban className="h-4 w-4" /> Cancel this{" "}
+                    {movement.type === "SALE" ? "sale" : "dispense"}
+                  </Button>
+                )}
               </div>
             )}
             {error && <p className="text-[13px] font-medium text-danger">{error}</p>}

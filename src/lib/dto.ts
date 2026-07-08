@@ -82,6 +82,7 @@ export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
       : {}),
     ...(m.reference ? { reference: m.reference } : {}),
     ...(m.note ? { note: m.note } : {}),
+    ...(m.cancelledAt ? { cancelledAt: m.cancelledAt.toISOString() } : {}),
     staff: m.user.name,
     at: m.createdAt.toISOString(),
   };

@@ -102,8 +102,17 @@ export interface Movement {
   unitPrice?: number;
   reference?: string;
   note?: string;
+  cancelledAt?: string; // ISO datetime — set when this dispense/sale was voided
   staff: string;
   at: string; // ISO datetime
+}
+
+/** Count sheet row: a stock row plus its movement totals for a date range. */
+export interface CountSheetRow extends Item {
+  beginning: number; // on hand at the start of the range
+  inQty: number; // received/transferred in/adjusted up within the range
+  outQty: number; // dispensed/sold/etc. within the range (positive number)
+  ending: number; // on hand at the end of the range
 }
 
 export interface DashboardData {

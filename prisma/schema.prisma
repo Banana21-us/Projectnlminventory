@@ -159,6 +159,10 @@ model Movement {
   orNumber     String?
   reference    String?
   note         String?
+  // Set when a DISPENSE/SALE is voided; the compensating ADJUSTMENT row
+  // (reference = this movement's id) carries who/when/why. Ledger stays
+  // append-only — nothing is ever deleted.
+  cancelledAt  DateTime?
   createdAt    DateTime         @default(now())
 
   @@index([itemId, createdAt])

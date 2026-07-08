@@ -54,6 +54,11 @@ export const movementCreateSchema = z
     path: ["unitPrice"],
   });
 
+export const movementCancelSchema = z.object({
+  id: z.string().min(1, "Movement is required"),
+  reason: z.string().trim().min(1, "Reason is required").max(300),
+});
+
 export const districtCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
 });
