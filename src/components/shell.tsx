@@ -29,6 +29,12 @@ interface NavItem {
 // account links rather than day-to-day work sections.
 const SECONDARY_HREFS = new Set(["/log", "/admin", "/profile"]);
 
+// Fixed slot count for the mobile bottom tab bar, regardless of how many
+// tabs a role actually has — keeps icon size/spacing consistent and the
+// raised Dispense button in the same visual position across roles (e.g.
+// ADMIN's 5 tabs vs STAFF's 4) instead of drifting off-center.
+const MOBILE_TAB_SLOTS = 5;
+
 // Each role gets its own sidebar — the proxy enforces the same map
 // server-side (src/lib/route-guards.ts), this is only presentation.
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
@@ -116,9 +122,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.STAFF;
   const primaryNav = nav.filter((item) => !SECONDARY_HREFS.has(item.href));
   const secondaryNav = nav.filter((item) => SECONDARY_HREFS.has(item.href));
-  // Profile lives in the mobile header instead, so it doesn't eat one of the
-  // bottom tab bar's 5 slots.
-  const tabItems = nav.filter((item) => item.href !== "/profile").slice(0, 5);
+  const hasGuesthouse = nav.some((item) => item.href === "/guesthouse");
+  // Profile and Guesthouse live in the mobile header instead, so they don't
+  // eat two of the bottom tab bar's 5 slots (Guesthouse was previously
+  // getting silently cut off there for ADMIN, who has 6 non-profile items).
+  const tabItems = nav
+    .filter((item) => item.href !== "/profile" && item.href !== "/guesthouse")
+    .slice(0, MOBILE_TAB_SLOTS);
 
   useEffect(() => {
     if (status === "unauthenticated" && !pathname.startsWith("/login")) {
@@ -178,66 +188,91 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Mobile header */}
         <header className="sticky top-0 z-30 flex items-center justify-between bg-surface/90 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
           <Wordmark />
-          <Link
-            href="/profile"
-            aria-label="Profile"
-            aria-current={pathname === "/profile" ? "page" : undefined}
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
-              pathname === "/profile"
-                ? "bg-brand-tint text-brand-dark"
-                : "text-ink-faint hover:bg-bg hover:text-ink",
+          <div className="flex shrink-0 items-center gap-1.5">
+            {hasGuesthouse && (
+              <Link
+                href="/guesthouse"
+                aria-label="Guesthouse"
+                aria-current={pathname === "/guesthouse" ? "page" : undefined}
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                  pathname === "/guesthouse"
+                    ? "bg-brand-tint text-brand-dark"
+                    : "text-ink-faint hover:bg-bg hover:text-ink",
+                )}
+              >
+                <BedDouble className="h-5 w-5" />
+              </Link>
             )}
-          >
-            <User className="h-5 w-5" />
-          </Link>
+            <Link
+              href="/profile"
+              aria-label="Profile"
+              aria-current={pathname === "/profile" ? "page" : undefined}
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                pathname === "/profile"
+                  ? "bg-brand-tint text-brand-dark"
+                  : "text-ink-faint hover:bg-bg hover:text-ink",
+              )}
+            >
+              <User className="h-5 w-5" />
+            </Link>
+          </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-5 sm:px-6 sm:pb-10 sm:pt-8">
+        <main
+          className={cn(
+            "mx-auto w-full max-w-6xl flex-1 px-4 pt-5 sm:px-6 sm:pb-10 sm:pt-8",
+            tabItems.length > 0 ? "pb-28" : "pb-5",
+          )}
+        >
           {children}
         </main>
       </div>
 
-      {/* Mobile bottom tab bar with raised dispense action — Profile lives in
-          the mobile header instead, so it doesn't eat one of these 5 slots. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
-        <div
-          className="mx-auto grid max-w-md"
-          style={{ gridTemplateColumns: `repeat(${tabItems.length}, 1fr)` }}
-        >
-          {tabItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
-            const raised = href === "/dispense";
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className="flex min-h-14 flex-col items-center justify-center gap-0.5"
-              >
-                <span
-                  className={cn(
-                    "flex items-center justify-center transition-colors",
-                    raised
-                      ? "-mt-6 h-13 w-13 rounded-full bg-ember text-white shadow-lg shadow-ember/30 ring-4 ring-bg"
-                      : cn("h-7 w-7", active ? "text-brand-dark" : "text-ink-faint"),
-                  )}
+      {/* Mobile bottom tab bar with raised dispense action — Profile and
+          Guesthouse live in the mobile header instead, so they don't eat
+          two of these 5 slots. */}
+      {tabItems.length > 0 && (
+        <nav className="fixed inset-x-0 bottom-0 z-30 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur sm:hidden">
+          <div
+            className="mx-auto grid max-w-md"
+            style={{ gridTemplateColumns: `repeat(${MOBILE_TAB_SLOTS}, 1fr)` }}
+          >
+            {tabItems.map(({ href, label, icon: Icon }) => {
+              const active = pathname === href;
+              const raised = href === "/dispense";
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className="flex min-h-14 flex-col items-center justify-center gap-0.5"
                 >
-                  <Icon className={raised ? "h-6 w-6" : "h-5 w-5"} />
-                </span>
-                <span
-                  className={cn(
-                    "text-[10px] font-medium",
-                    active ? "text-brand-dark" : "text-ink-faint",
-                  )}
-                >
-                  {label}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+                  <span
+                    className={cn(
+                      "flex items-center justify-center transition-colors",
+                      raised
+                        ? "-mt-6 h-13 w-13 rounded-full bg-ember text-white shadow-lg shadow-ember/30 ring-4 ring-bg"
+                        : cn("h-7 w-7", active ? "text-brand-dark" : "text-ink-faint"),
+                    )}
+                  >
+                    <Icon className={raised ? "h-6 w-6" : "h-5 w-5"} />
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium",
+                      active ? "text-brand-dark" : "text-ink-faint",
+                    )}
+                  >
+                    {label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
