@@ -6,14 +6,32 @@ import type { Item as ItemDto, Movement as MovementDto, RecipientDto } from "./t
 // the role shouldn't see, etc.) stay inside.
 
 type StockRow = Prisma.ItemStockGetPayload<{
-  include: { item: { include: { category: true } }; stockroom: true };
+  include: {
+    item: { include: { category: true } };
+    stockroom: true;
+    batches: true;
+    assetUnits: true;
+  };
 }>;
 
+function pickOrder<B extends { expiry: Date | null; receivedAt: Date }>(batches: B[]): B[] {
+  return [...batches].sort((a, b) => {
+    const ae = a.expiry?.getTime();
+    const be = b.expiry?.getTime();
+    if (ae != null && be != null && ae !== be) return ae - be;
+    if (ae != null && be == null) return -1;
+    if (ae == null && be != null) return 1;
+    return a.receivedAt.getTime() - b.receivedAt.getTime();
+  });
+}
+
 export function toItemDto(row: StockRow, opts: { withPricing: boolean }): ItemDto {
+  const batches = pickOrder(row.batches);
   return {
     id: row.id,
     itemId: row.itemId,
     name: row.item.name,
+    ...(row.item.model ? { model: row.item.model } : {}),
     category: row.item.category.type,
     categoryName: row.item.category.name,
     shelf: row.shelf,
@@ -24,8 +42,25 @@ export function toItemDto(row: StockRow, opts: { withPricing: boolean }): ItemDt
     unit: row.item.unit,
     sellingPrice: opts.withPricing ? Number(row.item.sellingPrice) : 0,
     avgCost: opts.withPricing ? Number(row.item.avgCost) : 0,
+    serialized: row.item.serialized,
     ...(row.item.notes ? { description: row.item.notes } : {}),
     ...(row.item.frequent ? { frequent: true } : {}),
+    batches: batches.map((b) => ({
+      id: b.id,
+      code: b.code,
+      qtyReceived: b.qtyReceived,
+      qtyOnHand: b.qtyOnHand,
+      receivedAt: b.receivedAt.toISOString(),
+      ...(b.expiry ? { expiry: b.expiry.toISOString().slice(0, 10) } : {}),
+      ...(b.note ? { note: b.note } : {}),
+    })),
+    ...(row.item.serialized
+      ? {
+          units: [...row.assetUnits]
+            .sort((a, b) => a.serial.localeCompare(b.serial))
+            .map((u) => ({ id: u.id, serial: u.serial, status: u.status })),
+        }
+      : {}),
   };
 }
 
@@ -48,10 +83,11 @@ type MovementRow = Prisma.MovementGetPayload<{
     stockroom: true;
     user: true;
     recipient: { include: { district: true } };
+    lines: { include: { batch: true; assetUnit: true } };
   };
 }> & { shelf?: string };
 
-const IN_TYPES = new Set(["RECEIVE", "TRANSFER_IN"]);
+const IN_TYPES = new Set(["RECEIVE", "TRANSFER_IN", "RETURN"]);
 
 export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
   const direction =
@@ -66,6 +102,7 @@ export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
     type: m.type,
     direction,
     itemName: m.item.name,
+    serialized: m.item.serialized,
     category: m.item.category.name,
     shelf,
     location: m.stockroom.name,
@@ -81,8 +118,14 @@ export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
       ? { unitPrice: Number(m.unitPrice) }
       : {}),
     ...(m.reference ? { reference: m.reference } : {}),
+    ...(m.writeOffReason ? { writeOffReason: m.writeOffReason } : {}),
     ...(m.note ? { note: m.note } : {}),
     ...(m.cancelledAt ? { cancelledAt: m.cancelledAt.toISOString() } : {}),
+    lines: m.lines.map((l) => ({
+      batchCode: l.batch.code,
+      qty: l.qty,
+      ...(l.assetUnit ? { serial: l.assetUnit.serial, unitId: l.assetUnitId! } : {}),
+    })),
     staff: m.user.name,
     at: m.createdAt.toISOString(),
   };

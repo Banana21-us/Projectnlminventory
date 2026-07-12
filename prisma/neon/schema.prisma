@@ -1,10 +1,17 @@
+// Postgres/Neon mirror of ../schema.prisma — used only when USE_NEON=true.
+// Keep this file's models in lockstep with ../schema.prisma by hand;
+// nothing enforces that automatically. See src/lib/prisma.ts for the toggle.
+// Lives in its own folder so it gets its own prisma/neon/migrations history
+// (Prisma requires one lock file per migrations directory).
+
 generator client {
   provider = "prisma-client-js"
+  output   = "../../src/generated/prisma-neon"
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("NEON_DATABASE_URL")
 }
 
 // ── Users & auth ────────────────────────────────────────────────
@@ -103,13 +110,13 @@ model ItemStock {
 /// (earliest expiry first) when any batch on the item has an expiry, else
 /// FIFO (earliest received first).
 model Batch {
-  id          String      @id @default(cuid())
+  id          String         @id @default(cuid())
   itemStockId String
-  itemStock   ItemStock   @relation(fields: [itemStockId], references: [id])
+  itemStock   ItemStock      @relation(fields: [itemStockId], references: [id])
   code        String // lot / batch label, e.g. "B-260712-A"
   qtyReceived Int
   qtyOnHand   Int
-  receivedAt  DateTime    @default(now())
+  receivedAt  DateTime       @default(now())
   expiry      DateTime?
   note        String?
   assetUnits  AssetUnit[]

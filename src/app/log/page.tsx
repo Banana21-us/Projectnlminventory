@@ -152,7 +152,12 @@ export default function LogPage() {
         </ul>
       )}
 
-      <ReceiptSheet movement={selected} onClose={() => setSelected(null)} onCancelled={refetch} />
+      <ReceiptSheet
+        movement={selected}
+        onClose={() => setSelected(null)}
+        onCancelled={refetch}
+        onReturned={refetch}
+      />
     </div>
   );
 }

@@ -2,20 +2,32 @@ import { z } from "zod";
 
 // FormRequest-style schemas: one per endpoint, validated in the DAL.
 
-export const itemCreateSchema = z.object({
-  name: z.string().trim().min(1, "Item name is required").max(120),
-  categoryId: z.string().min(1, "Category is required"),
-  stockroomId: z.string().min(1, "Stockroom is required"),
-  shelf: z.string().trim().min(1, "Shelf code is required").max(20),
-  unit: z.string().trim().min(1, "Unit is required").max(30),
-  stock: z.number().int().min(0),
-  maxStock: z.number().int().min(1, "Par level must be at least 1"),
-  sellingPrice: z.number().min(0).optional(),
-  unitCost: z.number().min(0).optional(),
-  minStock: z.number().int().min(0).optional(),
-  description: z.string().trim().max(500).optional(),
-  frequent: z.boolean().optional(),
-});
+const writeOffReasonSchema = z.enum(["DAMAGED", "WET", "SPOILED", "EXPIRED", "LOST", "OTHER"]);
+
+export const itemCreateSchema = z
+  .object({
+    name: z.string().trim().min(1, "Item name is required").max(120),
+    model: z.string().trim().max(120).optional(),
+    categoryId: z.string().min(1, "Category is required"),
+    stockroomId: z.string().min(1, "Stockroom is required"),
+    shelf: z.string().trim().min(1, "Shelf code is required").max(20),
+    unit: z.string().trim().min(1, "Unit is required").max(30),
+    stock: z.number().int().min(0).default(0),
+    maxStock: z.number().int().min(1, "Par level must be at least 1"),
+    sellingPrice: z.number().min(0).optional(),
+    unitCost: z.number().min(0).optional(),
+    minStock: z.number().int().min(0).optional(),
+    description: z.string().trim().max(500).optional(),
+    frequent: z.boolean().optional(),
+    serialized: z.boolean().optional(),
+    serials: z.array(z.string().trim().min(1)).optional(),
+    batchCode: z.string().trim().max(40).optional(),
+    expiry: z.string().optional(),
+  })
+  .refine((v) => !v.serialized || (v.serials?.length ?? 0) > 0, {
+    message: "Enter at least one serial number",
+    path: ["serials"],
+  });
 
 export const itemBulkSchema = z
   .object({
@@ -23,6 +35,8 @@ export const itemBulkSchema = z
     action: z.enum(["adjust", "transfer", "writeOff"]),
     delta: z.number().int().optional(),
     stockroomId: z.string().optional(),
+    writeOffReason: writeOffReasonSchema.optional(),
+    note: z.string().trim().max(500).optional(),
   })
   .refine((v) => v.action !== "adjust" || (v.delta !== undefined && v.delta !== 0), {
     message: "Adjustment amount is required",
@@ -31,13 +45,17 @@ export const itemBulkSchema = z
   .refine((v) => v.action !== "transfer" || !!v.stockroomId, {
     message: "Target stockroom is required",
     path: ["stockroomId"],
+  })
+  .refine((v) => v.action !== "writeOff" || !!v.writeOffReason, {
+    message: "A reason is required to write off stock",
+    path: ["writeOffReason"],
   });
 
 export const movementCreateSchema = z
   .object({
     stockId: z.string().min(1, "Item is required"),
-    type: z.enum(["RECEIVE", "DISPENSE", "SALE"]),
-    qty: z.number().int().min(1, "Quantity must be at least 1"),
+    type: z.enum(["RECEIVE", "DISPENSE", "SALE", "WRITE_OFF"]),
+    qty: z.number().int().min(1).optional(),
     purpose: z
       .enum(["FREE_BAPTISMAL", "PASTOR_ISSUE", "OFFICE_USE", "GUESTHOUSE", "DONATION", "OTHER"])
       .optional(),
@@ -48,16 +66,46 @@ export const movementCreateSchema = z
     orNumber: z.string().trim().max(40).optional(),
     reference: z.string().trim().max(120).optional(),
     note: z.string().trim().max(500).optional(),
+    batchId: z.string().optional(),
+    batchCode: z.string().trim().max(40).optional(),
+    expiry: z.string().optional(),
+    serials: z.array(z.string().trim().min(1)).optional(),
+    unitIds: z.array(z.string().min(1)).optional(),
+    writeOffReason: writeOffReasonSchema.optional(),
   })
   .refine((v) => v.type !== "SALE" || v.unitPrice !== undefined, {
     message: "Unit price is required for sales",
     path: ["unitPrice"],
-  });
+  })
+  .refine((v) => v.type !== "WRITE_OFF" || !!v.writeOffReason, {
+    message: "A reason is required to write off stock",
+    path: ["writeOffReason"],
+  })
+  .refine(
+    (v) =>
+      (v.qty !== undefined && v.qty >= 1) ||
+      (v.serials?.length ?? 0) > 0 ||
+      (v.unitIds?.length ?? 0) > 0,
+    { message: "Quantity is required", path: ["qty"] },
+  );
 
 export const movementCancelSchema = z.object({
   id: z.string().min(1, "Movement is required"),
   reason: z.string().trim().min(1, "Reason is required").max(300),
 });
+
+export const movementReturnSchema = z
+  .object({
+    id: z.string().min(1, "Movement is required"),
+    qty: z.number().int().min(1).optional(),
+    unitIds: z.array(z.string().min(1)).optional(),
+    condition: z.union([z.literal("GOOD"), writeOffReasonSchema]),
+    note: z.string().trim().max(500).optional(),
+  })
+  .refine((v) => (v.qty !== undefined && v.qty >= 1) || (v.unitIds?.length ?? 0) > 0, {
+    message: "Quantity is required",
+    path: ["qty"],
+  });
 
 export const districtCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),

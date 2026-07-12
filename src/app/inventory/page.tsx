@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { InventorySettingsSheet } from "@/components/inventory-settings";
+import { ItemDetailSheet } from "@/components/item-detail";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge, StockCount, StockGauge } from "@/components/stock";
 import { Button } from "@/components/ui/button";
@@ -27,11 +28,14 @@ import { useCurrentUser } from "@/lib/use-user";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
+  WRITE_OFF_LABELS,
+  WRITE_OFF_REASONS,
   stockStatus,
   type Category,
   type CategoryDto,
   type Item,
   type StockroomDto,
+  type WriteOffReason,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +56,7 @@ export default function InventoryPage() {
   const [view, setView] = useState<View>("grid");
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -59,6 +64,10 @@ export default function InventoryPage() {
   const { can } = useCurrentUser();
   const canManage = can("inventory.manage");
   const canManageSettings = can("settings.manage");
+  const detailItem = useMemo(
+    () => (detailId ? (items?.find((i) => i.id === detailId) ?? null) : null),
+    [items, detailId],
+  );
 
   const filtered = useMemo(() => {
     if (!items) return [];
@@ -282,6 +291,7 @@ export default function InventoryPage() {
               selectable={selectMode}
               selected={selected.has(item.id)}
               onToggle={() => toggleSelected(item.id)}
+              onOpen={() => setDetailId(item.id)}
             />
           ))}
         </ul>
@@ -291,6 +301,7 @@ export default function InventoryPage() {
           selectable={selectMode}
           selected={selected}
           onToggle={toggleSelected}
+          onOpen={(id) => setDetailId(id)}
         />
       )}
 
@@ -310,7 +321,9 @@ export default function InventoryPage() {
           stockrooms={stockrooms ?? []}
           onAdjust={(delta) => bulk({ action: "adjust", delta }, "Stock adjusted")}
           onTransfer={(id) => bulk({ action: "transfer", stockroomId: id }, "Items transferred")}
-          onWriteOff={() => bulk({ action: "writeOff" }, "Stock written off")}
+          onWriteOff={(reason) =>
+            bulk({ action: "writeOff", writeOffReason: reason }, "Stock written off")
+          }
           onClose={exitSelectMode}
         />
       )}
@@ -333,6 +346,13 @@ export default function InventoryPage() {
           void refetchStockrooms();
           void refetch();
         }}
+      />
+
+      <ItemDetailSheet
+        item={detailItem}
+        onClose={() => setDetailId(null)}
+        onChanged={() => void refetch()}
+        canManage={canManage}
       />
     </div>
   );
@@ -380,11 +400,13 @@ function GridCard({
   selectable,
   selected,
   onToggle,
+  onOpen,
 }: {
   item: Item;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
+  onOpen: () => void;
 }) {
   const body = (
     <>
@@ -393,6 +415,9 @@ function GridCard({
           {selectable && <SelectDot selected={selected} />}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
+            {item.model && (
+              <p className="truncate text-[11px] text-ink-faint">{item.model}</p>
+            )}
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <ShelfTag code={item.shelf} />
               <span className="text-[11px] text-ink-faint">
@@ -407,24 +432,33 @@ function GridCard({
         <StockGauge item={item} className="flex-1" />
         <StockCount item={item} />
       </div>
+      {(item.batches.length > 1 || item.serialized) && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {item.batches.length > 1 && (
+            <span className="text-[11px] text-ink-faint">{item.batches.length} batches</span>
+          )}
+          {item.serialized && (
+            <span className="rounded bg-brand-tint px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand-dark">
+              SN
+            </span>
+          )}
+        </div>
+      )}
     </>
   );
 
   return (
     <li>
-      {selectable ? (
-        <button
-          onClick={onToggle}
-          className={cn(
-            "w-full rounded-xl bg-surface p-4 text-left shadow-sm ring-1 transition-shadow",
-            selected ? "ring-2 ring-brand" : "ring-black/5",
-          )}
-        >
-          {body}
-        </button>
-      ) : (
-        <div className="rounded-xl bg-surface p-4 shadow-sm ring-1 ring-black/5">{body}</div>
-      )}
+      <button
+        onClick={selectable ? onToggle : onOpen}
+        className={cn(
+          "w-full rounded-xl bg-surface p-4 text-left shadow-sm ring-1 transition-shadow",
+          selectable && selected ? "ring-2 ring-brand" : "ring-black/5",
+          !selectable && "hover:shadow-md",
+        )}
+      >
+        {body}
+      </button>
     </li>
   );
 }
@@ -434,11 +468,13 @@ function ListView({
   selectable,
   selected,
   onToggle,
+  onOpen,
 }: {
   items: Item[];
   selectable: boolean;
   selected: Set<string>;
   onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
@@ -460,10 +496,10 @@ function ListView({
             {items.map((item) => (
               <tr
                 key={item.id}
-                onClick={selectable ? () => onToggle(item.id) : undefined}
+                onClick={() => (selectable ? onToggle(item.id) : onOpen(item.id))}
                 className={cn(
-                  selectable && "cursor-pointer",
-                  selected.has(item.id) ? "bg-brand-tint/60" : "hover:bg-bg/60",
+                  "cursor-pointer",
+                  selectable && selected.has(item.id) ? "bg-brand-tint/60" : "hover:bg-bg/60",
                 )}
               >
                 {selectable && (
@@ -471,7 +507,12 @@ function ListView({
                     <SelectDot selected={selected.has(item.id)} />
                   </td>
                 )}
-                <td className="px-4 py-3 font-medium text-ink">{item.name}</td>
+                <td className="px-4 py-3">
+                  <span className="font-medium text-ink">{item.name}</span>
+                  {item.model && (
+                    <span className="block text-[11px] text-ink-faint">{item.model}</span>
+                  )}
+                </td>
                 <td className="px-3 py-3">
                   <ShelfTag code={item.shelf} />
                 </td>
@@ -496,10 +537,10 @@ function ListView({
         {items.map((item) => (
           <li
             key={item.id}
-            onClick={selectable ? () => onToggle(item.id) : undefined}
+            onClick={() => (selectable ? onToggle(item.id) : onOpen(item.id))}
             className={cn(
-              "flex items-center gap-3 px-4 py-3",
-              selected.has(item.id) && "bg-brand-tint/60",
+              "flex cursor-pointer items-center gap-3 px-4 py-3",
+              selectable && selected.has(item.id) && "bg-brand-tint/60",
             )}
           >
             {selectable && <SelectDot selected={selected.has(item.id)} />}
@@ -532,7 +573,7 @@ function BulkBar({
   stockrooms: StockroomDto[];
   onAdjust: (delta: number) => void;
   onTransfer: (stockroomId: string) => void;
-  onWriteOff: () => void;
+  onWriteOff: (reason: WriteOffReason) => void;
   onClose: () => void;
 }) {
   const [delta, setDelta] = useState(1);
@@ -592,13 +633,30 @@ function BulkBar({
             ))}
           </select>
         </label>
-        <button
-          disabled={busy || count === 0}
-          onClick={onWriteOff}
-          className="flex items-center gap-1.5 rounded-lg bg-danger/90 px-3 py-2 text-xs font-semibold hover:bg-danger disabled:opacity-40"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Write off
-        </button>
+        <label className="flex items-center gap-1.5 rounded-lg bg-danger/90 px-2 py-1.5 text-xs font-semibold hover:bg-danger">
+          <Trash2 className="h-3.5 w-3.5" />
+          <select
+            disabled={busy || count === 0}
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) {
+                onWriteOff(e.target.value as WriteOffReason);
+                e.target.value = "";
+              }
+            }}
+            aria-label="Write off remaining stock"
+            className="bg-transparent text-xs font-semibold focus:outline-none disabled:opacity-40 [&>option]:text-ink"
+          >
+            <option value="" disabled>
+              Write off…
+            </option>
+            {WRITE_OFF_REASONS.map((r) => (
+              <option key={r} value={r}>
+                {WRITE_OFF_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           onClick={onClose}
           aria-label="Exit selection mode"
@@ -625,10 +683,19 @@ function AddItemSheet({
   const { data: categories } = useFetch<CategoryDto[]>("/api/categories");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState("");
+  const [serialized, setSerialized] = useState(false);
+
+  const isAsset = (categories ?? []).find((c) => c.id === categoryId)?.type === "ASSET";
+  const trackSerials = isAsset && serialized;
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const serials = String(fd.get("serials") ?? "")
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     setSaving(true);
     setError(null);
     try {
@@ -637,21 +704,27 @@ function AddItemSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: fd.get("name"),
+          model: fd.get("model") || undefined,
           description: fd.get("description") || undefined,
           categoryId: fd.get("categoryId"),
           stockroomId: fd.get("stockroomId"),
           shelf: fd.get("shelf"),
           unit: fd.get("unit"),
-          stock: Number(fd.get("stock")),
+          stock: trackSerials ? undefined : Number(fd.get("stock")),
           maxStock: Number(fd.get("maxStock")),
           unitCost: Number(fd.get("unitCost")) || 0,
           sellingPrice: Number(fd.get("sellingPrice")) || 0,
+          serialized: trackSerials,
+          serials: trackSerials ? serials : undefined,
+          batchCode: fd.get("batchCode") || undefined,
+          expiry: fd.get("expiry") || undefined,
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error ?? "Could not save item");
       }
+      setSerialized(false);
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save item");
@@ -666,6 +739,9 @@ function AddItemSheet({
         <Field label="Item name">
           <Input name="name" required placeholder="e.g. Steps to Christ" />
         </Field>
+        <Field label="Model / edition (optional)">
+          <Input name="model" placeholder="e.g. Pocket edition, Epson EB-X06" />
+        </Field>
         <Field label="Description (optional)">
           <textarea
             name="description"
@@ -676,7 +752,10 @@ function AddItemSheet({
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category">
-            <SelectInput name="categoryId">
+            <SelectInput name="categoryId" value={categoryId} onChange={setCategoryId}>
+              <option value="" disabled>
+                Select…
+              </option>
               {(categories ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -702,12 +781,45 @@ function AddItemSheet({
             <Input name="unit" required placeholder="copies" />
           </Field>
         </div>
+        {isAsset && (
+          <label className="flex items-center gap-2.5 rounded-lg bg-brand-tint/50 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={serialized}
+              onChange={(e) => setSerialized(e.target.checked)}
+              className="h-4 w-4 accent-brand"
+            />
+            <span className="text-[13px] font-medium text-ink">
+              Track individual serial numbers
+            </span>
+          </label>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Opening stock">
-            <Input name="stock" type="number" min={0} required defaultValue={0} className="font-mono" />
-          </Field>
+          {!trackSerials && (
+            <Field label="Opening stock">
+              <Input name="stock" type="number" min={0} required defaultValue={0} className="font-mono" />
+            </Field>
+          )}
           <Field label="Max / par level">
             <Input name="maxStock" type="number" min={1} required className="font-mono" />
+          </Field>
+        </div>
+        {trackSerials && (
+          <Field label="Serial numbers (one per line)">
+            <textarea
+              name="serials"
+              rows={3}
+              placeholder={"SN-1001\nSN-1002"}
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 font-mono text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25"
+            />
+          </Field>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Batch / lot code (optional)">
+            <Input name="batchCode" placeholder="auto" className="font-mono" />
+          </Field>
+          <Field label="Expiry date (optional)">
+            <Input name="expiry" type="date" className="font-mono" />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -733,15 +845,21 @@ function AddItemSheet({
 
 function SelectInput({
   name,
+  value,
+  onChange,
   children,
 }: {
   name: string;
+  value?: string;
+  onChange?: (value: string) => void;
   children: React.ReactNode;
 }) {
   return (
     <select
       name={name}
       required
+      value={value}
+      onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       className="min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25"
     >
       {children}

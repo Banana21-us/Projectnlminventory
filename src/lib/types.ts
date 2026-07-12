@@ -4,11 +4,50 @@ export type Category = "BOOK" | "MATERIAL" | "SUPPLY" | "ASSET";
 
 export type Role = "ADMIN" | "STAFF" | "GUESTHOUSE";
 
+export type UnitStatus = "IN_STOCK" | "ISSUED" | "WRITTEN_OFF";
+
+export interface BatchInfo {
+  id: string;
+  code: string;
+  qtyReceived: number;
+  qtyOnHand: number;
+  receivedAt: string; // ISO datetime
+  expiry?: string; // ISO date
+  note?: string;
+}
+
+export interface UnitInfo {
+  id: string;
+  serial: string;
+  status: UnitStatus;
+}
+
+export type WriteOffReason = "DAMAGED" | "WET" | "SPOILED" | "EXPIRED" | "LOST" | "OTHER";
+
+export const WRITE_OFF_REASONS: WriteOffReason[] = [
+  "DAMAGED",
+  "WET",
+  "SPOILED",
+  "EXPIRED",
+  "LOST",
+  "OTHER",
+];
+
+export const WRITE_OFF_LABELS: Record<WriteOffReason, string> = {
+  DAMAGED: "Damaged",
+  WET: "Water damage",
+  SPOILED: "Spoiled",
+  EXPIRED: "Expired",
+  LOST: "Lost / missing",
+  OTHER: "Other",
+};
+
 /** One row per item per stockroom (an ItemStock joined to its Item). */
 export interface Item {
   id: string; // ItemStock id — what dispense/bulk actions reference
   itemId: string;
   name: string;
+  model?: string; // product model / edition
   category: Category;
   categoryName: string;
   shelf: string;
@@ -19,8 +58,11 @@ export interface Item {
   unit: string;
   sellingPrice: number;
   avgCost: number;
+  serialized: boolean;
   description?: string;
   frequent?: boolean;
+  batches: BatchInfo[];
+  units?: UnitInfo[]; // serialized items only
 }
 
 export interface StockroomDto {
@@ -83,13 +125,22 @@ export type MovementType =
   | "TRANSFER_IN"
   | "TRANSFER_OUT"
   | "ADJUSTMENT"
-  | "WRITE_OFF";
+  | "WRITE_OFF"
+  | "RETURN";
+
+export interface MovementLineInfo {
+  batchCode: string;
+  qty: number;
+  serial?: string;
+  unitId?: string;
+}
 
 export interface Movement {
   id: string;
   type: MovementType;
   direction: "IN" | "OUT";
   itemName: string;
+  serialized: boolean;
   unit: string;
   category?: string;
   shelf: string;
@@ -101,8 +152,12 @@ export interface Movement {
   orNumber?: string;
   unitPrice?: number;
   reference?: string;
+  writeOffReason?: WriteOffReason;
   note?: string;
   cancelledAt?: string; // ISO datetime — set when this dispense/sale was voided
+  lines: MovementLineInfo[];
+  /** DISPENSE/SALE only: how much of this issue can still be returned. */
+  returnableQty?: number;
   staff: string;
   at: string; // ISO datetime
 }
@@ -148,6 +203,7 @@ export const MOVEMENT_LABELS: Record<MovementType, string> = {
   TRANSFER_OUT: "Transfer out",
   ADJUSTMENT: "Adjustment",
   WRITE_OFF: "Write-off",
+  RETURN: "Returned",
 };
 
 export type StockStatus = "ok" | "low" | "critical";
@@ -165,6 +221,10 @@ export const STATUS_LABELS: Record<StockStatus, string> = {
   low: "Low stock",
   critical: "Critical",
 };
+
+export function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
 
 export function formatRelative(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);

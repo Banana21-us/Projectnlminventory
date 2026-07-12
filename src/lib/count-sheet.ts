@@ -11,7 +11,12 @@ import type { CountSheetRow } from "./types";
 export async function buildCountSheet(start: Date, end: Date): Promise<CountSheetRow[]> {
   const stocks = await prisma.itemStock.findMany({
     where: { item: { active: true }, stockroom: { active: true } },
-    include: { item: { include: { category: true } }, stockroom: true },
+    include: {
+      item: { include: { category: true } },
+      stockroom: true,
+      batches: true,
+      assetUnits: true,
+    },
     orderBy: [{ stockroom: { name: "asc" } }, { shelf: "asc" }],
   });
 

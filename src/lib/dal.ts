@@ -2,23 +2,16 @@ import { ZodError, type ZodType } from "zod";
 import { auth } from "./auth";
 import { prisma } from "./prisma";
 import { can, type Permission } from "./policies";
+import { ApiError } from "./errors";
 import type { Role } from "@prisma/client";
+
+export { ApiError } from "./errors";
 
 export interface SessionUser {
   id: string;
   name: string;
   email: string;
   role: Role;
-}
-
-/** Thrown by guards; converted to a JSON response by `api()`. */
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
 }
 
 /**

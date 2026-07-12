@@ -41,6 +41,10 @@ export default function DispensePage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<Category | "ALL">("ALL");
   const [cart, setCart] = useState<Record<string, number>>({});
+  // Optional overrides: dispense from a specific batch / specific serials.
+  // Left unset, the server auto-picks FEFO/FIFO (or oldest serials).
+  const [batchSel, setBatchSel] = useState<Record<string, string>>({});
+  const [serialSel, setSerialSel] = useState<Record<string, string[]>>({});
   const [issuedTo, setIssuedTo] = useState("");
   const [recipient, setRecipient] = useState<RecipientSelection | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -81,6 +85,39 @@ export default function DispensePage() {
       else next[id] = clamped;
       return next;
     });
+    setSerialSel((s) => {
+      if (!s[id]) return s;
+      const next = { ...s };
+      delete next[id]; // qty stepper overrides an explicit serial pick
+      return next;
+    });
+    if (qty <= 0) {
+      setBatchSel((b) => {
+        if (!(id in b)) return b;
+        const next = { ...b };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const toggleSerial = (item: Item, unitId: string) => {
+    setSerialSel((s) => {
+      const current = s[item.id] ?? [];
+      const next = current.includes(unitId)
+        ? current.filter((u) => u !== unitId)
+        : [...current, unitId];
+      const nextMap = { ...s };
+      if (next.length === 0) delete nextMap[item.id];
+      else nextMap[item.id] = next;
+      setCart((c) => {
+        const updated = { ...c };
+        if (next.length === 0) delete updated[item.id];
+        else updated[item.id] = next.length;
+        return updated;
+      });
+      return nextMap;
+    });
   };
 
   const confirm = async () => {
@@ -93,6 +130,8 @@ export default function DispensePage() {
     setError(null);
     try {
       for (const { item, qty } of cartLines) {
+        const unitIds = serialSel[item.id];
+        const batchId = batchSel[item.id];
         const res = await fetch("/api/movements", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -101,6 +140,8 @@ export default function DispensePage() {
             stockId: item.id,
             qty,
             issuedTo: issuedTo.trim(),
+            unitIds: item.serialized && unitIds?.length ? unitIds : undefined,
+            batchId: !item.serialized && batchId ? batchId : undefined,
             ...(recipient?.recipientId ? { recipientId: recipient.recipientId } : {}),
             ...(recipient?.purpose ? { purpose: recipient.purpose } : {}),
             ...(recipient?.note ? { note: recipient.note } : {}),
@@ -127,6 +168,8 @@ export default function DispensePage() {
         detail: `${totalQty} item${totalQty === 1 ? "" : "s"} issued to ${issuedTo.trim()}.`,
       });
       setCart({});
+      setBatchSel({});
+      setSerialSel({});
       setIssuedTo("");
       setRecipient(null);
       setSheetOpen(false);
@@ -153,6 +196,8 @@ export default function DispensePage() {
       onConfirm={confirm}
       onCancel={() => {
         setCart({});
+        setBatchSel({});
+        setSerialSel({});
         setIssuedTo("");
         setRecipient(null);
         setError(null);
@@ -160,6 +205,17 @@ export default function DispensePage() {
       }}
       submitting={submitting}
       error={error}
+      batchSel={batchSel}
+      serialSel={serialSel}
+      onBatchSel={(id, batchId) =>
+        setBatchSel((b) => {
+          const next = { ...b };
+          if (!batchId) delete next[id];
+          else next[id] = batchId;
+          return next;
+        })
+      }
+      onToggleSerial={toggleSerial}
     />
   );
 
@@ -313,6 +369,7 @@ function ItemCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
+          {item.model && <p className="truncate text-[11px] text-ink-faint">{item.model}</p>}
           <div className="mt-1.5 flex items-center gap-2">
             <ShelfTag code={item.shelf} />
             <span className="text-[11px] text-ink-faint">
@@ -372,6 +429,10 @@ function SlipPanel({
   onCancel,
   submitting,
   error,
+  batchSel,
+  serialSel,
+  onBatchSel,
+  onToggleSerial,
 }: {
   lines: { item: Item; qty: number }[];
   issuedTo: string;
@@ -382,6 +443,10 @@ function SlipPanel({
   onCancel: () => void;
   submitting: boolean;
   error: string | null;
+  batchSel: Record<string, string>;
+  serialSel: Record<string, string[]>;
+  onBatchSel: (id: string, batchId: string) => void;
+  onToggleSerial: (item: Item, unitId: string) => void;
 }) {
   return (
     <div className="rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
@@ -400,23 +465,32 @@ function SlipPanel({
       ) : (
         <ul className="divide-y divide-line px-4">
           {lines.map(({ item, qty }) => (
-            <li key={item.id} className="flex items-center gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-ink">
-                  {item.name}{" "}
-                  <span className="font-mono text-xs font-semibold text-ink-soft">
-                    × {qty}
-                  </span>
-                </p>
-                <ShelfTag code={item.shelf} className="mt-1" />
+            <li key={item.id} className="py-3">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-ink">
+                    {item.name}{" "}
+                    <span className="font-mono text-xs font-semibold text-ink-soft">
+                      × {qty}
+                    </span>
+                  </p>
+                  <ShelfTag code={item.shelf} className="mt-1" />
+                </div>
+                <button
+                  onClick={() => onRemove(item.id)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-danger-tint hover:text-danger"
+                  aria-label={`Remove ${item.name}`}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={() => onRemove(item.id)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-danger-tint hover:text-danger"
-                aria-label={`Remove ${item.name}`}
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <LineSource
+                item={item}
+                batchSel={batchSel[item.id] ?? ""}
+                serialSel={serialSel[item.id] ?? []}
+                onBatchSel={(batchId) => onBatchSel(item.id, batchId)}
+                onToggleSerial={(unitId) => onToggleSerial(item, unitId)}
+              />
             </li>
           ))}
         </ul>
@@ -470,6 +544,76 @@ function SlipPanel({
         )}
       </div>
     </div>
+  );
+}
+
+// Per-line source override: pick a batch (multi-batch, non-serialized) or
+// specific serials. Left untouched, the server picks FEFO/FIFO/oldest.
+function LineSource({
+  item,
+  batchSel,
+  serialSel,
+  onBatchSel,
+  onToggleSerial,
+}: {
+  item: Item;
+  batchSel: string;
+  serialSel: string[];
+  onBatchSel: (batchId: string) => void;
+  onToggleSerial: (unitId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (item.serialized) {
+    const inStock = (item.units ?? []).filter((u) => u.status === "IN_STOCK");
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="text-[11px] font-medium text-brand-dark hover:underline"
+        >
+          {serialSel.length > 0 ? `Serials: ${serialSel.length} chosen` : "Serials: auto"} {open ? "▴" : "▾"}
+        </button>
+        {open && (
+          <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto rounded-lg bg-bg p-2">
+            {inStock.map((u) => (
+              <label
+                key={u.id}
+                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-surface"
+              >
+                <input
+                  type="checkbox"
+                  checked={serialSel.includes(u.id)}
+                  onChange={() => onToggleSerial(u.id)}
+                  className="h-3.5 w-3.5 accent-brand"
+                />
+                <span className="font-mono text-[11px] font-semibold text-ink">{u.serial}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const stockedBatches = item.batches.filter((b) => b.qtyOnHand > 0);
+  if (stockedBatches.length < 2 && !batchSel) return null;
+  return (
+    <select
+      value={batchSel}
+      onChange={(e) => onBatchSel(e.target.value)}
+      aria-label={`Batch for ${item.name}`}
+      className="mt-2 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-[11px] font-medium text-ink-soft focus:border-brand focus:outline-none"
+    >
+      <option value="">Batch: auto (draw order)</option>
+      {stockedBatches.map((b) => (
+        <option key={b.id} value={b.id}>
+          {b.code} · {b.qtyOnHand} {item.unit}
+          {b.expiry ? ` · EXP ${b.expiry}` : ""}
+        </option>
+      ))}
+    </select>
   );
 }
 

@@ -1,7 +1,13 @@
-import { PrismaClient, Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import bcrypt from "bcryptjs"
+import { applyStockAction } from "../src/lib/stock"
+import { prisma } from "../src/lib/prisma"
 
-const prisma = new PrismaClient()
+function daysFromNow(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
 async function main() {
   // ── Default accounts (change these passwords after first login) ──
@@ -82,18 +88,41 @@ async function main() {
 
   // ── Sample items so the app isn't empty on first run ──
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@nlm.org" } })
-  const sampleItems = [
+
+  interface BatchSpec {
+    qty: number
+    batchCode: string
+    expiry?: string
+    serials?: string[]
+  }
+  interface ItemSpec {
+    name: string
+    model?: string
+    category: string
+    stockroom: string
+    shelf: string
+    unit: string
+    maxStock: number
+    cost: number
+    price: number
+    frequent?: boolean
+    serialized?: boolean
+    batches: BatchSpec[]
+  }
+
+  const sampleItems: ItemSpec[] = [
     {
       name: "Steps to Christ",
+      model: "Pocket edition",
       category: "Bible Books",
       stockroom: "Publishing Room",
       shelf: "A1-01",
       unit: "copies",
-      qty: 120,
       maxStock: 200,
       cost: 35,
       price: 60,
       frequent: true,
+      batches: [{ qty: 120, batchCode: "STC-2024" }],
     },
     {
       name: "Baptismal Certificate",
@@ -101,11 +130,16 @@ async function main() {
       stockroom: "Main Storeroom",
       shelf: "B1-02",
       unit: "pcs",
-      qty: 300,
       maxStock: 500,
       cost: 5,
       price: 0,
       frequent: true,
+      // Two lots with different expiries — demonstrates FEFO: the near-dated
+      // lot drains first even though the far lot was received later.
+      batches: [
+        { qty: 90, batchCode: "BC-LOT-8841", expiry: daysFromNow(40) },
+        { qty: 210, batchCode: "BC-LOT-9102", expiry: daysFromNow(300) },
+      ],
     },
     {
       name: "Bond Paper A4",
@@ -113,46 +147,63 @@ async function main() {
       stockroom: "Main Storeroom",
       shelf: "C1-01",
       unit: "reams",
-      qty: 25,
       maxStock: 40,
       cost: 220,
       price: 0,
-      frequent: false,
+      batches: [{ qty: 25, batchCode: "PAPER-2606" }],
+    },
+    {
+      name: "Data Projector",
+      model: "Epson EB-X06",
+      category: "Equipment",
+      stockroom: "Main Storeroom",
+      shelf: "D1-01",
+      unit: "units",
+      maxStock: 6,
+      cost: 18000,
+      price: 0,
+      serialized: true,
+      batches: [{ qty: 3, batchCode: "PROJ-2605", serials: ["EPX06-001", "EPX06-002", "EPX06-003"] }],
     },
   ]
+
   for (const s of sampleItems) {
     const existing = await prisma.item.findFirst({ where: { name: s.name } })
     if (existing) continue
     const item = await prisma.item.create({
       data: {
         name: s.name,
+        model: s.model,
         categoryId: categories[s.category],
         unit: s.unit,
         sellingPrice: new Prisma.Decimal(s.price),
         avgCost: new Prisma.Decimal(s.cost),
-        frequent: s.frequent,
+        frequent: s.frequent ?? false,
+        serialized: s.serialized ?? false,
       },
     })
-    await prisma.itemStock.create({
+    const stock = await prisma.itemStock.create({
       data: {
         itemId: item.id,
         stockroomId: stockrooms[s.stockroom],
         shelf: s.shelf,
-        quantity: s.qty,
+        quantity: 0,
         maxStock: s.maxStock,
       },
     })
-    await prisma.movement.create({
-      data: {
-        itemId: item.id,
-        stockroomId: stockrooms[s.stockroom],
+    for (const b of s.batches) {
+      await applyStockAction({
+        stockId: stock.id,
         userId: admin.id,
+        qty: b.qty,
         type: "RECEIVE",
-        qty: s.qty,
-        unitCost: new Prisma.Decimal(s.cost),
+        unitCost: s.cost,
         reference: "Opening stock",
-      },
-    })
+        batchCode: b.batchCode,
+        expiry: b.expiry,
+        serials: b.serials,
+      })
+    }
   }
 
   // ── Guesthouse rooms ──

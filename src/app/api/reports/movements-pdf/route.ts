@@ -27,6 +27,7 @@ export const GET = api(async (request) => {
       stockroom: true,
       user: true,
       recipient: { include: { district: true } },
+      lines: { include: { batch: true, assetUnit: true } },
     },
     orderBy: { createdAt: "asc" },
   });

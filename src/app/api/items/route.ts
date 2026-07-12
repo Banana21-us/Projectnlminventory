@@ -8,6 +8,8 @@ import { itemBulkSchema, itemCreateSchema } from "@/lib/validators";
 const STOCK_INCLUDE = {
   item: { include: { category: true } },
   stockroom: true,
+  batches: true,
+  assetUnits: true,
 } as const;
 
 export const GET = api(async () => {
@@ -30,47 +32,52 @@ export const POST = api(async (request) => {
   ]);
   if (!category) throw new ApiError(422, "Unknown category");
   if (!stockroom) throw new ApiError(422, "Unknown stockroom");
+  if (data.serialized && category.type !== "ASSET") {
+    throw new ApiError(422, "Only assets can track serial numbers");
+  }
 
   const unitCost = data.unitCost ?? 0;
-  const row = await prisma.$transaction(async (tx) => {
-    const item = await tx.item.create({
-      data: {
-        name: data.name,
-        categoryId: category.id,
-        unit: data.unit,
-        sellingPrice: new Prisma.Decimal(data.sellingPrice ?? 0),
-        avgCost: new Prisma.Decimal(unitCost),
-        minStock: data.minStock ?? 0,
-        frequent: data.frequent ?? false,
-        notes: data.description ?? null,
-      },
-    });
-    const stock = await tx.itemStock.create({
-      data: {
-        itemId: item.id,
-        stockroomId: stockroom.id,
-        shelf: data.shelf.toUpperCase(),
-        quantity: data.stock,
-        maxStock: data.maxStock,
-      },
-      include: STOCK_INCLUDE,
-    });
-    if (data.stock > 0) {
-      await tx.movement.create({
-        data: {
-          itemId: item.id,
-          stockroomId: stockroom.id,
-          userId: user.id,
-          type: "RECEIVE",
-          qty: data.stock,
-          unitCost: new Prisma.Decimal(unitCost),
-          reference: "Opening stock",
-        },
-      });
-    }
-    return stock;
+  const serialized = data.serialized ?? false;
+  const item = await prisma.item.create({
+    data: {
+      name: data.name,
+      model: data.model,
+      categoryId: category.id,
+      unit: data.unit,
+      sellingPrice: new Prisma.Decimal(data.sellingPrice ?? 0),
+      avgCost: new Prisma.Decimal(unitCost),
+      minStock: data.minStock ?? 0,
+      frequent: data.frequent ?? false,
+      serialized,
+      notes: data.description ?? null,
+    },
+  });
+  const stock = await prisma.itemStock.create({
+    data: {
+      itemId: item.id,
+      stockroomId: stockroom.id,
+      shelf: data.shelf.toUpperCase(),
+      quantity: 0,
+      maxStock: data.maxStock,
+    },
   });
 
+  const hasOpeningStock = serialized ? (data.serials?.length ?? 0) > 0 : data.stock > 0;
+  if (hasOpeningStock) {
+    await applyStockAction({
+      stockId: stock.id,
+      userId: user.id,
+      qty: data.stock,
+      type: "RECEIVE",
+      unitCost,
+      reference: "Opening stock",
+      batchCode: data.batchCode,
+      expiry: data.expiry,
+      serials: data.serials,
+    });
+  }
+
+  const row = await prisma.itemStock.findUniqueOrThrow({ where: { id: stock.id }, include: STOCK_INCLUDE });
   return Response.json(toItemDto(row, { withPricing: true }), { status: 201 });
 });
 
@@ -111,6 +118,8 @@ export const PATCH = api(async (request) => {
         userId: user.id,
         qty: stock.quantity,
         type: "WRITE_OFF",
+        writeOffReason: data.writeOffReason,
+        note: data.note,
         reference: "Stock write-off",
       });
     }

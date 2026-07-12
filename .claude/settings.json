@@ -48,7 +48,9 @@
       "Bash(curl -s -b cookies.txt http://localhost:3000/api/stockrooms)",
       "Bash(taskkill //PID 23464 //F)",
       "Bash(cp /tmp/cleanup.mjs ./cleanup-tmp.mjs)",
-      "Bash(rm ./cleanup-tmp.mjs)"
+      "Bash(rm ./cleanup-tmp.mjs)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run lint)"
     ]
   }
 }
