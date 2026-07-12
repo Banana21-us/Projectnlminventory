@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "seed:users": "tsx prisma/seed-users.ts"
   },
   "dependencies": {
     "@prisma/client": "^6",
