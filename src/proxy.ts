@@ -1,12 +1,29 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { homeFor } from "@/lib/policies";
 import { allowedForRole } from "@/lib/route-guards";
 
+const PASS_THROUGH = [
+  (p: string) => p.startsWith("/api/auth"),
+  (p: string) => p.startsWith("/_next/"),
+  (p: string) => p.startsWith("/__nextjs_font/"),
+  (p: string) => p === "/favicon.ico",
+  (p: string) => p === "/login",
+  (p: string) => p === "/manifest.webmanifest",
+  (p: string) => /\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|webmanifest|woff2?)$/.test(p),
+];
+
+function shouldBypass(pathname: string): boolean {
+  return PASS_THROUGH.some((fn) => fn(pathname));
+}
+
 // Optimistic perimeter checks only — every route handler re-verifies the
 // session and permissions in the DAL (src/lib/dal.ts).
-export default auth((req) => {
+export default auth((req: NextRequest & { auth?: any }) => {
   const { pathname } = req.nextUrl;
+
+  if (shouldBypass(pathname)) return NextResponse.next();
+
   const isApi = pathname.startsWith("/api");
 
   if (!req.auth?.user) {
@@ -47,6 +64,6 @@ export const config = {
   // Public static assets (images, fonts, etc. served from /public) must be
   // excluded too — otherwise the auth guard 307s the logo request itself.
   matcher: [
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|login|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico)$).*)",
+    "/((?!api/auth|_next/|favicon.ico|login|__nextjs_font|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|webmanifest)$).*)",
   ],
 };

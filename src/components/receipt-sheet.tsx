@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, CheckCircle2, Download, Printer, Undo2 } from "lucide-react";
+import { Ban, CheckCircle2, Download, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { ShelfTag } from "@/components/shelf-tag";
 import { SignaturePad } from "@/components/signature-pad";
@@ -10,7 +10,7 @@ import { formatCurrency } from "@/lib/format";
 import { useCurrentUser } from "@/lib/use-user";
 import { MOVEMENT_LABELS, WRITE_OFF_LABELS, WRITE_OFF_REASONS, type Movement } from "@/lib/types";
 
-type PendingAction = "print" | "download" | null;
+type PendingAction = "download" | null;
 
 export function ReceiptSheet({
   movement,
@@ -133,7 +133,7 @@ export function ReceiptSheet({
 
   const requestAction = (action: PendingAction) => {
     setError(null);
-    if (signature) {
+    if (action === "download" || signature) {
       void performAction(action);
     } else {
       setPending(action);
@@ -146,12 +146,7 @@ export function ReceiptSheet({
   };
 
   const performAction = async (action: PendingAction) => {
-    if (!movement || !signature) return;
-    if (action === "print") {
-      setPending(null);
-      window.print();
-      return;
-    }
+    if (!movement) return;
     if (action === "download") {
       setDownloading(true);
       setError(null);
@@ -288,13 +283,12 @@ export function ReceiptSheet({
             {pending ? (
               <div>
                 <p className="mb-2 text-xs font-medium text-ink-soft">
-                  Signature of person who availed — required before{" "}
-                  {pending === "print" ? "printing" : "downloading"}
+                  Signature of person who availed — required before downloading
                 </p>
                 <SignaturePad onChange={setSignature} />
                 <div className="mt-3 flex gap-2">
                   <Button className="flex-1" disabled={!signature} onClick={confirmSignature}>
-                    Confirm &amp; {pending === "print" ? "print" : "download"}
+                    Confirm &amp; download
                   </Button>
                   <Button variant="outline" onClick={() => setPending(null)}>
                     Cancel
@@ -302,18 +296,13 @@ export function ReceiptSheet({
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => requestAction("print")}>
-                  <Printer className="h-4 w-4" /> Print
-                </Button>
-                <Button
-                  className="flex-1"
-                  disabled={downloading}
-                  onClick={() => requestAction("download")}
-                >
-                  <Download className="h-4 w-4" /> {downloading ? "Preparing…" : "Download PDF"}
-                </Button>
-              </div>
+              <Button
+                className="w-full"
+                disabled={downloading}
+                onClick={() => requestAction("download")}
+              >
+                <Download className="h-4 w-4" /> {downloading ? "Preparing…" : "Download PDF"}
+              </Button>
             )}
             {canReturn && !pending && !cancelMode && (
               <div className="border-t border-dashed border-line pt-3">

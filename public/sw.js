@@ -1,4 +1,4 @@
-const CACHE = "mission-supply-v1";
+const CACHE = "mission-supply-v2";
 const STATIC_ASSETS = [
   "/icon-192.svg",
   "/icon-512.svg",
@@ -26,9 +26,14 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+
+  if (request.mode === "websocket") return;
+
   const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) return;
+
+  if (url.pathname.startsWith("/api/")) return;
 
   if (STATIC_ASSETS.includes(url.pathname)) {
     event.respondWith(

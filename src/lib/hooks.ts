@@ -10,7 +10,7 @@ export function useFetch<T>(url: string) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(url)
+    fetch(url, { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Request failed (${res.status})`);
         return (await res.json()) as T;

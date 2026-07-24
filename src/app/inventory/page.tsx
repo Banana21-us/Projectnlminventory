@@ -48,6 +48,10 @@ export default function InventoryPage() {
     data: stockrooms,
     refetch: refetchStockrooms,
   } = useFetch<StockroomDto[]>("/api/stockrooms");
+  const {
+    data: categories,
+    refetch: refetchCategories,
+  } = useFetch<CategoryDto[]>("/api/categories");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("ALL");
@@ -330,6 +334,7 @@ export default function InventoryPage() {
 
       <AddItemSheet
         open={addOpen}
+        categories={categories ?? []}
         stockrooms={stockrooms ?? []}
         onClose={() => setAddOpen(false)}
         onSaved={() => {
@@ -344,6 +349,7 @@ export default function InventoryPage() {
         onClose={() => setSettingsOpen(false)}
         onChanged={() => {
           void refetchStockrooms();
+          void refetchCategories();
           void refetch();
         }}
       />
@@ -671,22 +677,23 @@ function BulkBar({
 
 function AddItemSheet({
   open,
+  categories,
   stockrooms,
   onClose,
   onSaved,
 }: {
   open: boolean;
+  categories: CategoryDto[];
   stockrooms: StockroomDto[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: categories } = useFetch<CategoryDto[]>("/api/categories");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState("");
   const [serialized, setSerialized] = useState(false);
 
-  const isAsset = (categories ?? []).find((c) => c.id === categoryId)?.type === "ASSET";
+  const isAsset = categories.find((c) => c.id === categoryId)?.type === "ASSET";
   const trackSerials = isAsset && serialized;
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -756,7 +763,7 @@ function AddItemSheet({
               <option value="" disabled>
                 Select…
               </option>
-              {(categories ?? []).map((c) => (
+              {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

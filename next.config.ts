@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["192.168.100.*", "localhost", "inventory.leuvhano.fun"],
   async headers() {
     return [
       {

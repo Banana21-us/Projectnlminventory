@@ -172,3 +172,4 @@ src/
 | GET | `/api/rooms` | List rooms | All roles |
 | PATCH | `/api/rooms/[id]` | Update room status | All roles |
 "# Projectnlminventory" 
+"# inventtorynlm" 
