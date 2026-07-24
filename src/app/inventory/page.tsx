@@ -59,6 +59,7 @@ export default function InventoryPage() {
   const [location, setLocation] = useState<string>("ALL");
   const [view, setView] = useState<View>("grid");
   const [addOpen, setAddOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
@@ -344,6 +345,20 @@ export default function InventoryPage() {
         }}
       />
 
+      {editingItem && (
+        <EditItemSheet
+          item={editingItem}
+          categories={categories ?? []}
+          stockrooms={stockrooms ?? []}
+          onClose={() => setEditingItem(null)}
+          onSaved={() => {
+            setEditingItem(null);
+            toast({ kind: "success", title: "Item updated" });
+            void refetch();
+          }}
+        />
+      )}
+
       <InventorySettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -359,6 +374,22 @@ export default function InventoryPage() {
         onClose={() => setDetailId(null)}
         onChanged={() => void refetch()}
         canManage={canManage}
+        onEdit={(item) => { setDetailId(null); setEditingItem(item); }}
+        onDelete={async (item) => {
+          if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
+          try {
+            const res = await fetch(`/api/items/${item.id}`, { method: "DELETE" });
+            if (!res.ok) {
+              const body = await res.json().catch(() => null);
+              throw new Error(body?.error ?? "Delete failed");
+            }
+            toast({ kind: "success", title: "Item deleted" });
+            setDetailId(null);
+            void refetch();
+          } catch (e) {
+            toast({ kind: "error", title: "Delete failed", detail: e instanceof Error ? e.message : undefined });
+          }
+        }}
       />
     </div>
   );
@@ -844,6 +875,106 @@ function AddItemSheet({
         )}
         <Button type="submit" className="w-full" size="lg" disabled={saving}>
           {saving ? "Saving…" : "Save item"}
+        </Button>
+      </form>
+    </Sheet>
+  );
+}
+
+function EditItemSheet({
+  item,
+  categories,
+  stockrooms,
+  onClose,
+  onSaved,
+}: {
+  item: Item;
+  categories: CategoryDto[];
+  stockrooms: StockroomDto[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState(item.categoryName ? (categories.find((c) => c.name === item.categoryName)?.id ?? "") : "");
+
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: fd.get("name"),
+          model: fd.get("model") || undefined,
+          description: fd.get("description") || undefined,
+          categoryId: fd.get("categoryId") || undefined,
+          shelf: fd.get("shelf") || undefined,
+          unit: fd.get("unit") || undefined,
+          maxStock: Number(fd.get("maxStock")) || undefined,
+          unitCost: Number(fd.get("unitCost")) || undefined,
+          sellingPrice: Number(fd.get("sellingPrice")) || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Could not save item");
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Sheet open={!!item} onClose={onClose} side="right" title="Edit item">
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Item name">
+          <Input name="name" required defaultValue={item.name} />
+        </Field>
+        <Field label="Model / edition">
+          <Input name="model" defaultValue={item.model ?? ""} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Category">
+            <SelectInput name="categoryId" value={categoryId} onChange={setCategoryId}>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field label="Unit">
+            <Input name="unit" required defaultValue={item.unit} />
+          </Field>
+        </div>
+        <Field label="Shelf code">
+          <Input name="shelf" required defaultValue={item.shelf} className="font-mono uppercase" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Max / par level">
+            <Input name="maxStock" type="number" min={1} required defaultValue={item.maxStock} className="font-mono" />
+          </Field>
+          <Field label="Unit cost (₱)">
+            <Input name="unitCost" type="number" min={0} step="0.01" defaultValue={item.avgCost} className="font-mono" />
+          </Field>
+        </div>
+        <Field label="Selling price (₱)">
+          <Input name="sellingPrice" type="number" min={0} step="0.01" defaultValue={item.sellingPrice ?? 0} className="font-mono" />
+        </Field>
+        {error && (
+          <p className="rounded-lg bg-danger-tint px-3 py-2 text-[13px] font-medium text-danger">
+            {error}
+          </p>
+        )}
+        <Button type="submit" className="w-full" size="lg" disabled={saving}>
+          {saving ? "Saving…" : "Save changes"}
         </Button>
       </form>
     </Sheet>

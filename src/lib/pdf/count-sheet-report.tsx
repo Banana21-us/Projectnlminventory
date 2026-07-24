@@ -95,6 +95,8 @@ export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetRe
             <Text style={[styles.th, styles.colQty]}>Beginning</Text>
             <Text style={[styles.th, styles.colQty]}>In</Text>
             <Text style={[styles.th, styles.colQty]}>Out</Text>
+            <Text style={[styles.th, styles.colQty]}>Returned</Text>
+            <Text style={[styles.th, styles.colQty]}>W/Off</Text>
             <Text style={[styles.th, styles.colEnding]}>Ending</Text>
             <Text style={[styles.th, styles.colCount]}>Physical count</Text>
           </View>
@@ -107,6 +109,8 @@ export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetRe
               <Text style={[styles.td, styles.colQty]}>{row.beginning}</Text>
               <Text style={[styles.td, styles.colQty]}>{row.inQty}</Text>
               <Text style={[styles.td, styles.colQty]}>{row.outQty}</Text>
+              <Text style={[styles.td, styles.colQty]}>{row.returnedQty}</Text>
+              <Text style={[styles.td, styles.colQty]}>{row.writeOffQty}</Text>
               <Text style={[styles.td, styles.colEnding]}>
                 {row.ending} {row.unit}
               </Text>

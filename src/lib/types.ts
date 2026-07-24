@@ -167,7 +167,19 @@ export interface CountSheetRow extends Item {
   beginning: number; // on hand at the start of the range
   inQty: number; // received/transferred in/adjusted up within the range
   outQty: number; // dispensed/sold/etc. within the range (positive number)
+  returnedQty: number; // qty returned from dispenses/sales within the range
+  writeOffQty: number; // qty written off (damaged/lost) within the range
   ending: number; // on hand at the end of the range
+}
+
+export interface CountSheetTotals {
+  rowCount: number;
+  beginning: number;
+  inQty: number;
+  outQty: number;
+  returnedQty: number;
+  writeOffQty: number;
+  ending: number;
 }
 
 export interface DashboardData {

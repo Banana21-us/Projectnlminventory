@@ -50,12 +50,12 @@ export function StatusBadge({ item }: { item: Pick<Item, "stock" | "maxStock"> }
   );
 }
 
-export function StockCount({ item }: { item: Pick<Item, "stock" | "maxStock" | "unit"> }) {
+export function StockCount({ item }: { item: Pick<Item, "stock" | "unit"> }) {
   return (
     <span className="font-mono text-xs tabular-nums text-ink-soft">
       <span className="font-semibold text-ink">{item.stock}</span>
-      {" / "}
-      {item.maxStock} {item.unit}
+      {" "}
+      {item.unit}
     </span>
   );
 }

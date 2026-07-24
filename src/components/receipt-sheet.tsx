@@ -42,7 +42,6 @@ export function ReceiptSheet({
   const [returning, setReturning] = useState(false);
   // The prop is a snapshot from the list; after we act, reflect it locally.
   const [justCancelledAt, setJustCancelledAt] = useState<string | null>(null);
-  const [returnedSoFar, setReturnedSoFar] = useState(0);
 
   // Reset per-receipt state when a different movement opens — done during
   // render (React's recommended pattern) rather than an effect, since this
@@ -60,15 +59,15 @@ export function ReceiptSheet({
     setReturnCondition("GOOD");
     setReturnNote("");
     setReturnUnitIds(new Set());
-    setReturnedSoFar(0);
   }
 
   const cancelledAt = movement?.cancelledAt ?? justCancelledAt ?? undefined;
-  const returnableQty = Math.max(0, (movement?.returnableQty ?? 0) - returnedSoFar);
+  const returnableQty = movement?.returnableQty ?? 0;
   const canCancel =
     !!movement &&
     (movement.type === "DISPENSE" || movement.type === "SALE") &&
     !cancelledAt &&
+    returnableQty === movement.qty &&
     can("movements.cancel");
   const canReturn = canCancel && returnableQty > 0;
   const outstandingUnits = (movement?.lines ?? []).filter((l) => l.unitId);
@@ -117,7 +116,6 @@ export function ReceiptSheet({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Could not record this return");
-      setReturnedSoFar((n) => n + (body?.qty ?? 0));
       setReturnMode(false);
       setReturnUnitIds(new Set());
       onReturned?.();

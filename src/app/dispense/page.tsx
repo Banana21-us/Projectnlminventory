@@ -46,6 +46,7 @@ export default function DispensePage() {
   const [batchSel, setBatchSel] = useState<Record<string, string>>({});
   const [serialSel, setSerialSel] = useState<Record<string, string[]>>({});
   const [issuedTo, setIssuedTo] = useState("");
+  const [purpose, setPurpose] = useState("");
   const [recipient, setRecipient] = useState<RecipientSelection | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -143,7 +144,7 @@ export default function DispensePage() {
             unitIds: item.serialized && unitIds?.length ? unitIds : undefined,
             batchId: !item.serialized && batchId ? batchId : undefined,
             ...(recipient?.recipientId ? { recipientId: recipient.recipientId } : {}),
-            ...(recipient?.purpose ? { purpose: recipient.purpose } : {}),
+            ...(purpose.trim() ? { purpose: purpose.trim() } : {}),
             ...(recipient?.note ? { note: recipient.note } : {}),
           }),
         });
@@ -171,6 +172,7 @@ export default function DispensePage() {
       setBatchSel({});
       setSerialSel({});
       setIssuedTo("");
+      setPurpose("");
       setRecipient(null);
       setSheetOpen(false);
     } catch (e) {
@@ -187,10 +189,12 @@ export default function DispensePage() {
     <SlipPanel
       lines={cartLines}
       issuedTo={issuedTo}
+      purpose={purpose}
       onIssuedTo={(v) => {
         setIssuedTo(v);
         setRecipient(null);
       }}
+      onPurpose={setPurpose}
       onBrowse={() => setPickerOpen(true)}
       onRemove={(id) => setQty(id, 0, 0)}
       onConfirm={confirm}
@@ -199,6 +203,7 @@ export default function DispensePage() {
         setBatchSel({});
         setSerialSel({});
         setIssuedTo("");
+        setPurpose("");
         setRecipient(null);
         setError(null);
         setSheetOpen(false);
@@ -422,7 +427,9 @@ function ItemCard({
 function SlipPanel({
   lines,
   issuedTo,
+  purpose,
   onIssuedTo,
+  onPurpose,
   onBrowse,
   onRemove,
   onConfirm,
@@ -436,7 +443,9 @@ function SlipPanel({
 }: {
   lines: { item: Item; qty: number }[];
   issuedTo: string;
+  purpose: string;
   onIssuedTo: (v: string) => void;
+  onPurpose: (v: string) => void;
   onBrowse: () => void;
   onRemove: (id: string) => void;
   onConfirm: () => void;
@@ -523,6 +532,21 @@ function SlipPanel({
               <UserRound className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+        <div>
+          <label
+            htmlFor="purpose"
+            className="mb-1.5 block text-xs font-medium text-ink-soft"
+          >
+            Purpose
+          </label>
+          <Input
+            id="purpose"
+            value={purpose}
+            onChange={(e) => onPurpose(e.target.value)}
+            placeholder="e.g. Church planting, Seminar, Office use…"
+            maxLength={300}
+          />
         </div>
         {error && (
           <p className="rounded-lg bg-danger-tint px-3 py-2 text-[13px] font-medium text-danger">

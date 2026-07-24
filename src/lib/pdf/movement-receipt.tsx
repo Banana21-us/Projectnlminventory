@@ -44,7 +44,7 @@ const money = (n: number) =>
 
 export interface MovementReceiptInput {
   movement: Movement;
-  signature: string;
+  signature?: string | null;
 }
 
 export function MovementReceiptDocument({ movement, signature }: MovementReceiptInput) {
@@ -136,12 +136,20 @@ export function MovementReceiptDocument({ movement, signature }: MovementReceipt
           </View>
         </View>
 
-        <View style={styles.sigSection}>
-          <Text style={styles.sigLabel}>Signature of person who availed</Text>
-          <Image style={styles.sigImage} src={signature} />
-          <View style={styles.sigLine} />
-          <Text style={styles.sigName}>{movement.issuedTo ?? movement.staff}</Text>
-        </View>
+        {signature ? (
+          <View style={styles.sigSection}>
+            <Text style={styles.sigLabel}>Signature of person who availed</Text>
+            <Image style={styles.sigImage} src={signature} />
+            <View style={styles.sigLine} />
+            <Text style={styles.sigName}>{movement.issuedTo ?? movement.staff}</Text>
+          </View>
+        ) : (
+          <View style={styles.sigSection}>
+            <Text style={styles.sigLabel}>Issued by</Text>
+            <View style={styles.sigLine} />
+            <Text style={styles.sigName}>{movement.issuedTo ?? movement.staff}</Text>
+          </View>
+        )}
 
         <Text style={styles.footer} fixed>
           Northern Luzon Mission Inventory System

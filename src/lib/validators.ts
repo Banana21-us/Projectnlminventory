@@ -56,9 +56,7 @@ export const movementCreateSchema = z
     stockId: z.string().min(1, "Item is required"),
     type: z.enum(["RECEIVE", "DISPENSE", "SALE", "WRITE_OFF"]),
     qty: z.number().int().min(1).optional(),
-    purpose: z
-      .enum(["FREE_BAPTISMAL", "PASTOR_ISSUE", "OFFICE_USE", "GUESTHOUSE", "DONATION", "OTHER"])
-      .optional(),
+    purpose: z.string().trim().max(120).optional(),
     issuedTo: z.string().trim().max(120).optional(),
     recipientId: z.string().optional(),
     unitCost: z.number().min(0).optional(),
@@ -236,5 +234,22 @@ export const movementReceiptPdfSchema = z.object({
   note: z.string().optional(),
   staff: z.string().min(1),
   at: z.string().min(1),
-  signature: z.string().startsWith("data:image/png"),
+  signature: z.string().startsWith("data:image/png").nullish(),
+});
+
+export const itemUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  model: z.string().trim().max(120).optional(),
+  categoryId: z.string().min(1).optional(),
+  shelf: z.string().trim().min(1).max(20).optional(),
+  unit: z.string().trim().min(1).max(30).optional(),
+  maxStock: z.number().int().min(1).optional(),
+  unitCost: z.number().min(0).optional(),
+  sellingPrice: z.number().min(0).optional(),
+  description: z.string().trim().max(500).optional(),
+  frequent: z.boolean().optional(),
+});
+
+export const itemDeleteSchema = z.object({
+  id: z.string().min(1),
 });

@@ -1,13 +1,13 @@
 "use client";
 
-import { ArrowLeft, Download, Printer } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Boxes, Download, Package, TriangleAlert, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge } from "@/components/stock";
 import { Button } from "@/components/ui/button";
 import { useFetch } from "@/lib/hooks";
-import { CATEGORY_LABELS, type CountSheetRow } from "@/lib/types";
+import { CATEGORY_LABELS, type CountSheetRow, type CountSheetTotals } from "@/lib/types";
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -16,11 +16,14 @@ function isoDate(d: Date): string {
 export default function CountSheetPage() {
   const [from, setFrom] = useState(() => isoDate(new Date(new Date().getFullYear(), 0, 1)));
   const [to, setTo] = useState(() => isoDate(new Date()));
-  const { data: rows, loading } = useFetch<CountSheetRow[]>(
+  const { data: raw, loading } = useFetch<{ rows: CountSheetRow[]; totals: CountSheetTotals }>(
     `/api/reports/count-sheet?from=${from}&to=${to}`,
   );
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const rows = raw?.rows;
+  const totals = raw?.totals;
 
   const longDate = (iso: string) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
@@ -74,9 +77,6 @@ export default function CountSheetPage() {
           <p className="mt-1 text-sm text-ink-soft">{period}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            <Printer className="h-4 w-4" /> Print
-          </Button>
           <Button size="sm" disabled={downloading} onClick={downloadPdf}>
             <Download className="h-4 w-4" /> {downloading ? "Preparing…" : "Download PDF"}
           </Button>
@@ -113,6 +113,60 @@ export default function CountSheetPage() {
         <p className="no-print text-[13px] font-medium text-danger">{downloadError}</p>
       )}
 
+      {totals && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-brand-tint text-brand-dark">
+              <Package className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.rowCount}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Items in count</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-brand-tint text-brand-dark">
+              <Boxes className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.beginning}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Beginning balance</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-success-tint text-success">
+              <ArrowDown className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.inQty}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Received</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-ember-tint text-ember-dark">
+              <ArrowUp className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.outQty}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Dispensed</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-brand-tint text-brand-dark">
+              <Undo2 className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.returnedQty}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Returned</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-warning-tint text-warning">
+              <TriangleAlert className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.writeOffQty}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Write-offs</p>
+          </div>
+          <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-ember-tint text-ember-dark">
+              <Boxes className="h-4 w-4" />
+            </div>
+            <p className="text-xl font-semibold tabular-nums text-ink">{totals.ending}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-ink-soft">Ending balance</p>
+          </div>
+        </div>
+      )}
+
       <div id="print-area" className="overflow-hidden rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
         <div className="hidden border-b border-line px-5 py-4 print:block">
           <p className="text-lg font-bold text-ink">Northern Luzon Mission — Inventory Count Sheet</p>
@@ -138,6 +192,8 @@ export default function CountSheetPage() {
                   <th className="px-3 py-3 text-right">Beginning</th>
                   <th className="px-3 py-3 text-right">In</th>
                   <th className="px-3 py-3 text-right">Out</th>
+                  <th className="px-3 py-3 text-right">Returned</th>
+                  <th className="px-3 py-3 text-right">W/Off</th>
                   <th className="px-3 py-3 text-right">Ending</th>
                   <th className="px-4 py-3">Status</th>
                 </tr>
@@ -157,6 +213,12 @@ export default function CountSheetPage() {
                     </td>
                     <td className="px-3 py-3 text-right font-mono text-ember-dark">
                       {row.outQty > 0 ? `−${row.outQty}` : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-brand">
+                      {row.returnedQty > 0 ? `+${row.returnedQty}` : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-warning">
+                      {row.writeOffQty > 0 ? row.writeOffQty : "—"}
                     </td>
                     <td className="px-3 py-3 text-right font-mono font-semibold text-ink">
                       {row.ending} {row.unit}

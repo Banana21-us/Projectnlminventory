@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, PackagePlus, Trash2 } from "lucide-react";
+import { CalendarClock, Pencil, PackagePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge, StockCount, StockGauge } from "@/components/stock";
@@ -23,11 +23,15 @@ export function ItemDetailSheet({
   onClose,
   onChanged,
   canManage,
+  onEdit,
+  onDelete,
 }: {
   item: Item | null;
   onClose: () => void;
   onChanged: () => void;
   canManage: boolean;
+  onEdit?: (item: Item) => void;
+  onDelete?: (item: Item) => void;
 }) {
   const [panel, setPanel] = useState<"receive" | "writeoff" | null>(null);
 
@@ -79,6 +83,29 @@ export function ItemDetailSheet({
               >
                 <Trash2 className="h-4 w-4" /> Write off
               </Button>
+            </div>
+          )}
+
+          {canManage && onEdit && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => onEdit(item)}
+              >
+                <Pencil className="h-4 w-4" /> Edit item
+              </Button>
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-danger hover:bg-danger/10 hover:text-danger"
+                  onClick={() => onDelete(item)}
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </Button>
+              )}
             </div>
           )}
 

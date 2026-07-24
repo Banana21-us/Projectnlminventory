@@ -24,23 +24,30 @@ export async function buildCountSheet(start: Date, end: Date): Promise<CountShee
   // dashboard does rather than reaching for raw SQL group-bys.
   const movements = await prisma.movement.findMany({
     where: { createdAt: { gte: start } },
-    select: { itemId: true, stockroomId: true, qty: true, createdAt: true },
+    select: { itemId: true, stockroomId: true, qty: true, createdAt: true, type: true },
   });
 
-  const buckets = new Map<string, { after: number; inQty: number; outQty: number; net: number }>();
+  const buckets = new Map<string, { after: number; inQty: number; outQty: number; returnedQty: number; writeOffQty: number; net: number }>();
   for (const m of movements) {
     const key = `${m.itemId}:${m.stockroomId}`;
     let b = buckets.get(key);
     if (!b) {
-      b = { after: 0, inQty: 0, outQty: 0, net: 0 };
+      b = { after: 0, inQty: 0, outQty: 0, returnedQty: 0, writeOffQty: 0, net: 0 };
       buckets.set(key, b);
     }
     if (m.createdAt >= end) {
       b.after += m.qty;
     } else {
       b.net += m.qty;
-      if (m.qty >= 0) b.inQty += m.qty;
-      else b.outQty += -m.qty;
+      if (m.type === "RETURN") {
+        b.returnedQty += m.qty;
+      } else if (m.type === "WRITE_OFF") {
+        b.writeOffQty += -m.qty;
+      } else if (m.qty >= 0) {
+        b.inQty += m.qty;
+      } else {
+        b.outQty += -m.qty;
+      }
     }
   }
 
@@ -52,6 +59,8 @@ export async function buildCountSheet(start: Date, end: Date): Promise<CountShee
       beginning: ending - (b?.net ?? 0),
       inQty: b?.inQty ?? 0,
       outQty: b?.outQty ?? 0,
+      returnedQty: b?.returnedQty ?? 0,
+      writeOffQty: b?.writeOffQty ?? 0,
       ending,
     };
   });

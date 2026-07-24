@@ -2,7 +2,6 @@ import {
   Prisma,
   type AssetUnitStatus,
   type Batch,
-  type DispensePurpose,
   type MovementType,
   type WriteOffReason,
 } from "@prisma/client";
@@ -100,7 +99,7 @@ export interface StockActionInput {
   userId: string;
   qty: number; // magnitude for RECEIVE/DISPENSE/SALE/WRITE_OFF; signed for ADJUSTMENT
   type: Extract<MovementType, "RECEIVE" | "DISPENSE" | "SALE" | "ADJUSTMENT" | "WRITE_OFF">;
-  purpose?: DispensePurpose;
+  purpose?: string;
   recipientId?: string;
   issuedToName?: string;
   unitCost?: number;
@@ -298,18 +297,37 @@ export async function cancelStockMovement(movementId: string, userId: string, re
     }
     if (movement.cancelledAt) throw new ApiError(409, "This movement is already cancelled");
 
-    const returnedQty = -movement.qty; // dispense qty is negative; put it back
+    // Account for any prior returns so we only restore what's still outstanding.
+    const priorReturns = await tx.movement.findMany({
+      where: { reference: movement.id, type: "RETURN" },
+      include: { lines: true },
+    });
+    const alreadyReturned = priorReturns.reduce((s, r) => s + r.qty, 0);
+    const outstanding = -movement.qty - alreadyReturned;
+
+    if (outstanding <= 0) {
+      throw new ApiError(409, "All stock has already been returned — use the log list to review");
+    }
+
+    // Restore only the outstanding (not already returned) quantity to stock.
     await tx.itemStock.upsert({
       where: { itemId_stockroomId: { itemId: movement.itemId, stockroomId: movement.stockroomId } },
-      update: { quantity: { increment: returnedQty } },
-      create: { itemId: movement.itemId, stockroomId: movement.stockroomId, quantity: returnedQty },
+      update: { quantity: { increment: outstanding } },
+      create: { itemId: movement.itemId, stockroomId: movement.stockroomId, quantity: outstanding },
     });
-    const lines: Line[] = movement.lines.map((l) => ({
-      batchId: l.batchId,
-      qty: l.qty,
-      assetUnitId: l.assetUnitId,
-    }));
-    await restoreLines(tx, lines);
+
+    // Build lines for the outstanding portion only (skip batches already fully returned).
+    const refunded = new Map<string, number>();
+    for (const r of priorReturns) {
+      for (const l of r.lines) refunded.set(l.batchId, (refunded.get(l.batchId) ?? 0) + l.qty);
+    }
+    const restoreLinesBatch: Line[] = [];
+    for (const l of movement.lines) {
+      const used = refunded.get(l.batchId) ?? 0;
+      const room = Math.max(0, l.qty - used);
+      if (room > 0) restoreLinesBatch.push({ batchId: l.batchId, qty: room, assetUnitId: l.assetUnitId });
+    }
+    await restoreLines(tx, restoreLinesBatch);
 
     await tx.movement.create({
       data: {
@@ -317,13 +335,13 @@ export async function cancelStockMovement(movementId: string, userId: string, re
         stockroomId: movement.stockroomId,
         userId,
         type: "ADJUSTMENT",
-        qty: returnedQty,
+        qty: outstanding,
         unitCost: movement.unitCost,
         recipientId: movement.recipientId,
         issuedToName: movement.issuedToName,
         reference: movement.id,
         note: `Cancelled ${movement.type.toLowerCase()}: ${reason}`,
-        lines: { create: lines.map((l) => ({ batchId: l.batchId, qty: l.qty, assetUnitId: l.assetUnitId })) },
+        lines: { create: restoreLinesBatch.map((l) => ({ batchId: l.batchId, qty: l.qty, assetUnitId: l.assetUnitId })) },
       },
     });
 
