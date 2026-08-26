@@ -526,10 +526,9 @@ function ListView({
               <th className="px-3 py-3">Shelf</th>
               <th className="px-3 py-3">Category</th>
               <th className="px-3 py-3">Location</th>
-              <th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3">Stock</th>
               <th className="px-3 py-3">Unit cost</th>
               <th className="px-3 py-3">Selling price</th>
+              <th className="px-3 py-3">Stock</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -558,17 +557,14 @@ function ListView({
                 </td>
                 <td className="px-3 py-3 text-ink-soft">{CATEGORY_LABELS[item.category]}</td>
                 <td className="px-3 py-3 text-ink-soft">{item.location}</td>
-                <td className="px-3 py-3">
-                  <StatusBadge item={item} />
-                </td>
+                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.avgCost)}</td>
+                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.sellingPrice)}</td>
                 <td className="px-3 py-3">
                   <div className="flex w-36 items-center gap-2">
                     <StockGauge item={item} className="flex-1" />
                     <StockCount item={item} />
                   </div>
                 </td>
-                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.avgCost)}</td>
-                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.sellingPrice)}</td>
               </tr>
             ))}
           </tbody>
