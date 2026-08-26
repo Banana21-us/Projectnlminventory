@@ -584,12 +584,16 @@ function ListView({
             {selectable && <SelectDot selected={selected.has(item.id)} />}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-ink">{item.name}</p>
-              <div className="mt-1 flex items-center gap-2">
+              <div className="mt-1 flex flex-wrap items-center gap-2">
                 <ShelfTag code={item.shelf} />
                 <StockCount item={item} />
               </div>
+              <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-ink-faint">
+                <span>{formatCurrency(item.avgCost)}</span>
+                <span>·</span>
+                <span>{formatCurrency(item.sellingPrice)}</span>
+              </div>
             </div>
-            <StatusBadge item={item} />
           </li>
         ))}
       </ul>
