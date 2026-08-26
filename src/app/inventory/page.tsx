@@ -18,7 +18,7 @@ import { useMemo, useState } from "react";
 import { InventorySettingsSheet } from "@/components/inventory-settings";
 import { ItemDetailSheet } from "@/components/item-detail";
 import { ShelfTag } from "@/components/shelf-tag";
-import { StatusBadge, StockCount, StockGauge } from "@/components/stock";
+import { StockCount, StockGauge } from "@/components/stock";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
@@ -464,7 +464,16 @@ function GridCard({
             </div>
           </div>
         </div>
-        <StatusBadge item={item} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 font-mono text-[11px] text-ink-faint">
+        <div>
+          <span className="block text-ink-faint/70">Unit cost</span>
+          <span className="text-ink-soft">{formatCurrency(item.avgCost)}</span>
+        </div>
+        <div>
+          <span className="block text-ink-faint/70">Selling price</span>
+          <span className="text-ink-soft">{formatCurrency(item.sellingPrice)}</span>
+        </div>
       </div>
       <div className="mt-3.5 flex items-center gap-3">
         <StockGauge item={item} className="flex-1" />
