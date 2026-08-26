@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { formatCurrency } from "@/lib/format";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import {
@@ -527,6 +528,8 @@ function ListView({
               <th className="px-3 py-3">Location</th>
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Stock</th>
+              <th className="px-3 py-3">Unit cost</th>
+              <th className="px-3 py-3">Selling price</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -564,6 +567,8 @@ function ListView({
                     <StockCount item={item} />
                   </div>
                 </td>
+                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.avgCost)}</td>
+                <td className="px-3 py-3 font-mono text-ink-soft">{formatCurrency(item.sellingPrice)}</td>
               </tr>
             ))}
           </tbody>
@@ -812,11 +817,11 @@ function AddItemSheet({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Shelf code">
-            <Input name="shelf" required placeholder="B2-04" className="font-mono uppercase" />
+          <Field label="Shelf code (optional)">
+            <Input name="shelf" placeholder="B2-04" className="font-mono uppercase" />
           </Field>
-          <Field label="Unit">
-            <Input name="unit" required placeholder="copies" />
+          <Field label="Unit (optional)">
+            <Input name="unit" placeholder="copies" />
           </Field>
         </div>
         {isAsset && (
@@ -838,8 +843,8 @@ function AddItemSheet({
               <Input name="stock" type="number" min={0} required defaultValue={0} className="font-mono" />
             </Field>
           )}
-          <Field label="Max / par level">
-            <Input name="maxStock" type="number" min={1} required className="font-mono" />
+          <Field label="Max / par level (optional)">
+            <Input name="maxStock" type="number" min={0} className="font-mono" />
           </Field>
         </div>
         {trackSerials && (

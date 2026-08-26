@@ -43,7 +43,7 @@ export const POST = api(async (request) => {
       name: data.name,
       model: data.model,
       categoryId: category.id,
-      unit: data.unit,
+      unit: data.unit ?? "pcs",
       sellingPrice: new Prisma.Decimal(data.sellingPrice ?? 0),
       avgCost: new Prisma.Decimal(unitCost),
       minStock: data.minStock ?? 0,
@@ -56,9 +56,9 @@ export const POST = api(async (request) => {
     data: {
       itemId: item.id,
       stockroomId: stockroom.id,
-      shelf: data.shelf.toUpperCase(),
+      shelf: (data.shelf ?? "").toUpperCase(),
       quantity: 0,
-      maxStock: data.maxStock,
+      maxStock: data.maxStock ?? 0,
     },
   });
 
