@@ -1,5 +1,11 @@
 import type { Prisma } from "@prisma/client";
-import type { Item as ItemDto, Movement as MovementDto, RecipientDto } from "./types";
+import type {
+  Booking as BookingDto,
+  Item as ItemDto,
+  Movement as MovementDto,
+  RecipientDto,
+} from "./types";
+import { folioTotals, notionalValue, toDateString } from "./booking";
 
 // DTO mappers — the Laravel API Resource layer. Only these shapes ever
 // leave the server; Prisma models (with password hashes, cost internals
@@ -128,5 +134,86 @@ export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
     })),
     staff: m.user.name,
     at: m.createdAt.toISOString(),
+  };
+}
+
+// ── Guesthouse ──────────────────────────────────────────────────
+
+/** Everything the booking DTO needs. Detail views add the ledgers. */
+export const BOOKING_INCLUDE = {
+  room: true,
+  createdBy: true,
+  payments: { include: { payer: true, recordedBy: true }, orderBy: { paidAt: "asc" } },
+  adjustments: { include: { createdBy: true }, orderBy: { createdAt: "asc" } },
+  events: { include: { actor: true }, orderBy: { createdAt: "desc" } },
+  stays: { include: { room: true }, orderBy: { fromDate: "asc" } },
+} as const satisfies Prisma.BookingInclude;
+
+type BookingRow = Prisma.BookingGetPayload<{ include: typeof BOOKING_INCLUDE }>;
+
+export function toBookingDto(row: BookingRow, opts: { detail?: boolean } = {}): BookingDto {
+  const totals = folioTotals(row);
+  return {
+    id: row.id,
+    roomId: row.roomId,
+    roomName: row.room.name,
+    guestName: row.guestName,
+    ...(row.contact ? { contact: row.contact } : {}),
+    ...(row.recipientId ? { recipientId: row.recipientId } : {}),
+    ...(row.groupId ? { groupId: row.groupId } : {}),
+    ...(row.groupName ? { groupName: row.groupName } : {}),
+    checkIn: toDateString(row.checkIn),
+    checkOut: toDateString(row.checkOut),
+    nights: row.nights,
+    billedNights: row.billedNights,
+    nightlyRate: Number(row.nightlyRate),
+    occupants: row.occupants,
+    status: row.status,
+    ...(row.holdUntil ? { holdUntil: toDateString(row.holdUntil) } : {}),
+    complimentary: row.complimentary,
+    ...(row.compReason ? { compReason: row.compReason } : {}),
+    ...(row.complimentary ? { notionalValue: notionalValue(row) } : {}),
+    ...(row.cancelReason ? { cancelReason: row.cancelReason } : {}),
+    ...(row.note ? { note: row.note } : {}),
+    totals,
+    createdBy: row.createdBy.name,
+    createdAt: row.createdAt.toISOString(),
+    ...(opts.detail
+      ? {
+          payments: row.payments.map((p) => ({
+            id: p.id,
+            amount: Number(p.amount),
+            method: p.method,
+            ...(p.payer ? { payerName: p.payer.name } : {}),
+            ...(p.settledAt ? { settledAt: p.settledAt.toISOString() } : {}),
+            ...(p.orNumber ? { orNumber: p.orNumber } : {}),
+            ...(p.reference ? { reference: p.reference } : {}),
+            ...(p.note ? { note: p.note } : {}),
+            paidAt: p.paidAt.toISOString(),
+            recordedBy: p.recordedBy.name,
+          })),
+          adjustments: row.adjustments.map((a) => ({
+            id: a.id,
+            kind: a.kind,
+            amount: Number(a.amount),
+            reason: a.reason,
+            createdBy: a.createdBy.name,
+            at: a.createdAt.toISOString(),
+          })),
+          events: row.events.map((e) => ({
+            id: e.id,
+            type: e.type,
+            ...(e.detail ? { detail: e.detail } : {}),
+            actor: e.actor.name,
+            at: e.createdAt.toISOString(),
+          })),
+          stays: row.stays.map((s) => ({
+            roomName: s.room.name,
+            from: toDateString(s.fromDate),
+            to: toDateString(s.toDate),
+            ...(s.reason ? { reason: s.reason } : {}),
+          })),
+        }
+      : {}),
   };
 }

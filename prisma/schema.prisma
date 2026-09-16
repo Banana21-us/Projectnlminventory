@@ -28,6 +28,11 @@ model User {
   updatedAt          DateTime   @updatedAt
   movements          Movement[]
   bookings           Booking[]
+  roomBlocks         RoomBlock[]
+  payments           Payment[]
+  adjustments        FolioAdjustment[]
+  bookingEvents      BookingEvent[]
+  guesthouseLocks    GuesthouseSettings[]
 }
 
 // ── Catalog ─────────────────────────────────────────────────────
@@ -168,6 +173,10 @@ model Recipient {
   active     Boolean       @default(true)
   createdAt  DateTime      @default(now())
   movements  Movement[]
+  // Guesthouse: a GUESTHOUSE recipient can be a repeat guest, and a
+  // DEPARTMENT recipient can be the payer on a charged-to-office stay.
+  bookings   Booking[]     @relation("BookingGuest")
+  paying     Payment[]     @relation("PaymentPayer")
 }
 
 // ── Movements (single audited ledger) ───────────────────────────
@@ -243,6 +252,19 @@ model MovementLine {
 }
 
 // ── Guesthouse ──────────────────────────────────────────────────
+//
+// Two append-only ledgers hang off a Booking: `Payment` (cash in/out) and
+// `FolioAdjustment` (discounts and extra charges). Nothing in either is ever
+// edited or deleted — a refund is a negative payment, a correction is a new
+// row. Everything else is derived:
+//
+//   charge   = nightlyRate × billedNights   (0 when complimentary)
+//   netTotal = charge − discounts + charges
+//   balance  = netTotal − payments
+//
+// Room occupancy is derived too, from BookingRoomStay + RoomBlock — never
+// from a hand-set flag. All booking/room state changes go through
+// src/lib/booking.ts, the way stock changes go through src/lib/stock.ts.
 
 enum RoomStatus {
   AVAILABLE
@@ -251,34 +273,215 @@ enum RoomStatus {
 }
 
 model Room {
-  id       String     @id @default(cuid())
-  name     String     @unique
-  status   RoomStatus @default(AVAILABLE)
-  bookings Booking[]
+  id            String            @id @default(cuid())
+  name          String            @unique
+  // Current default nightly rate. Bookings snapshot this at creation, so
+  // changing it never rewrites history (same rule as Movement.unitCost).
+  rate          Decimal           @default(0) @db.Decimal(10, 2)
+  capacity      Int?
+  notes         String?
+  active        Boolean           @default(true)
+  // Indefinite out-of-service. Dated repairs use RoomBlock instead, so
+  // nobody has to remember to clear a flag.
+  outOfService  Boolean           @default(false)
+  needsCleaning Boolean           @default(false)
+  bookings      Booking[]
+  stays         BookingRoomStay[]
+  blocks        RoomBlock[]
+}
+
+/// A room held out of service for a date range (repairs, deep clean).
+model RoomBlock {
+  id          String   @id @default(cuid())
+  roomId      String
+  room        Room     @relation(fields: [roomId], references: [id])
+  fromDate    DateTime @db.Date
+  toDate      DateTime @db.Date // exclusive, like checkOut
+  reason      String
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([roomId, fromDate])
 }
 
 enum BookingStatus {
-  PENDING
+  PENDING // tentative hold — holds the room, can expire
   CONFIRMED
   CHECKED_IN
   CHECKED_OUT
   CANCELLED
+  NO_SHOW
 }
 
 model Booking {
-  id          String        @id @default(cuid())
-  roomId      String
-  room        Room          @relation(fields: [roomId], references: [id])
-  guestName   String
-  contact     String?
-  checkIn     DateTime
-  checkOut    DateTime
-  status      BookingStatus @default(PENDING)
-  note        String?
-  createdById String
-  createdBy   User          @relation(fields: [createdById], references: [id])
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  roomId       String
+  room         Room          @relation(fields: [roomId], references: [id])
+  guestName    String
+  contact      String?
+  // Optional link to a GUESTHOUSE recipient — enables email notices and
+  // ties repeat guests together.
+  recipientId  String?
+  recipient    Recipient?    @relation("BookingGuest", fields: [recipientId], references: [id])
+  // Set on every booking made in one multi-room flow (district meetings).
+  groupId      String?
+  groupName    String?
+
+  // Date-only: the server runs UTC on Vercel while guests are Asia/Manila,
+  // so a local-midnight DateTime would shift the stay by a day.
+  checkIn      DateTime      @db.Date
+  checkOut     DateTime      @db.Date // exclusive
+  // `nights` is the reservation of record and never changes; `billedNights`
+  // is what money is computed from and may be corrected after checkout.
+  nights       Int
+  billedNights Int
+  nightlyRate  Decimal       @db.Decimal(10, 2)
+  occupants    Int           @default(1)
+
+  status       BookingStatus @default(CONFIRMED)
+  // Only meaningful while PENDING: the day the tentative hold lapses.
+  holdUntil    DateTime?     @db.Date
+
+  // Complimentary stays (visiting workers, speakers) bill nothing but keep
+  // their nightlyRate, so accounting can report the notional value given.
+  complimentary Boolean      @default(false)
+  compReason    String?
+
+  cancelReason   String?
+  actualCheckIn  DateTime?
+  actualCheckOut DateTime?
+  note           String?
+
+  createdById  String
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  payments     Payment[]
+  adjustments  FolioAdjustment[]
+  events       BookingEvent[]
+  stays        BookingRoomStay[]
 
   @@index([roomId, checkIn])
+  @@index([status, checkIn])
+  @@index([checkIn])
+  @@index([groupId])
+}
+
+/// One row per room a booking occupied. Normally one; a mid-stay room move
+/// closes the first and opens a second. Availability is computed from these.
+model BookingRoomStay {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id])
+  fromDate  DateTime @db.Date
+  toDate    DateTime @db.Date // exclusive
+  reason    String?
+
+  @@index([roomId, fromDate])
+  @@index([bookingId])
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  GCASH
+  CHECK
+  CHARGE_TO_DEPARTMENT
+  OTHER
+}
+
+/// Append-only cash ledger. Negative amounts are refunds (ADMIN only).
+model Payment {
+  id           String        @id @default(cuid())
+  bookingId    String
+  booking      Booking       @relation(fields: [bookingId], references: [id])
+  amount       Decimal       @db.Decimal(10, 2)
+  method       PaymentMethod
+  // Set when method is CHARGE_TO_DEPARTMENT: the department/district that
+  // owes it. Unsettled rows are the guesthouse's receivables.
+  payerId      String?
+  payer        Recipient?    @relation("PaymentPayer", fields: [payerId], references: [id])
+  settledAt    DateTime?
+  orNumber     String?
+  reference    String?
+  note         String?
+  paidAt       DateTime      @default(now())
+  recordedById String
+  recordedBy   User          @relation(fields: [recordedById], references: [id])
+  createdAt    DateTime      @default(now())
+
+  @@index([bookingId])
+  @@index([paidAt])
+}
+
+enum AdjustmentKind {
+  DISCOUNT // reduces what's owed — peso amount, ADMIN only, before payment
+  CHARGE // adds to what's owed — damages, laundry, replaced key
+}
+
+/// Append-only folio ledger. Never edited; a mistake is corrected by a new
+/// row in the opposite direction.
+model FolioAdjustment {
+  id          String         @id @default(cuid())
+  bookingId   String
+  booking     Booking        @relation(fields: [bookingId], references: [id])
+  kind        AdjustmentKind
+  amount      Decimal        @db.Decimal(10, 2) // always positive; `kind` gives direction
+  reason      String
+  createdById String
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  createdAt   DateTime       @default(now())
+
+  @@index([bookingId])
+  @@index([createdAt])
+}
+
+enum BookingEventType {
+  CREATED
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+  ROOM_CHANGED
+  DATES_CHANGED
+  EXTENDED
+  NIGHTS_ADJUSTED
+  DISCOUNT_APPLIED
+  CHARGE_ADDED
+  PAYMENT_RECORDED
+  REFUND_RECORDED
+  COMPED
+  RECEIVABLE_SETTLED
+}
+
+/// Audit trail — answers "who cancelled this?" and "why is this stay ₱2,000
+/// when it was booked for four nights?" without guesswork.
+model BookingEvent {
+  id         String           @id @default(cuid())
+  bookingId  String
+  booking    Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type       BookingEventType
+  fromStatus BookingStatus?
+  toStatus   BookingStatus?
+  detail     String?
+  actorId    String
+  actor      User             @relation(fields: [actorId], references: [id])
+  createdAt  DateTime         @default(now())
+
+  @@index([bookingId, createdAt])
+}
+
+/// Singleton (id "default"). `lockedThrough` freezes every stay and payment
+/// on or before that date so a filed treasurer's report stays reproducible.
+model GuesthouseSettings {
+  id            String    @id @default("default")
+  lockedThrough DateTime? @db.Date
+  lockedById    String?
+  lockedBy      User?     @relation(fields: [lockedById], references: [id])
+  updatedAt     DateTime  @updatedAt
 }

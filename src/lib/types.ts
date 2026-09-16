@@ -247,3 +247,210 @@ export function formatRelative(iso: string): string {
   const days = Math.round(hrs / 24);
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
+
+// ── Guesthouse ──────────────────────────────────────────────────
+
+export type BookingStatus =
+  | "PENDING"
+  | "CONFIRMED"
+  | "CHECKED_IN"
+  | "CHECKED_OUT"
+  | "CANCELLED"
+  | "NO_SHOW";
+
+export type PaymentMethod =
+  | "CASH"
+  | "BANK_TRANSFER"
+  | "GCASH"
+  | "CHECK"
+  | "CHARGE_TO_DEPARTMENT"
+  | "OTHER";
+
+export type AdjustmentKind = "DISCOUNT" | "CHARGE";
+
+export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
+  PENDING: "Tentative",
+  CONFIRMED: "Confirmed",
+  CHECKED_IN: "In-house",
+  CHECKED_OUT: "Checked out",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No-show",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CASH: "Cash",
+  BANK_TRANSFER: "Bank transfer",
+  GCASH: "GCash",
+  CHECK: "Check",
+  CHARGE_TO_DEPARTMENT: "Charge to department",
+  OTHER: "Other",
+};
+
+export interface FolioTotals {
+  charge: number;
+  discounts: number;
+  extraCharges: number;
+  netTotal: number;
+  paid: number;
+  balance: number;
+}
+
+export interface PaymentDto {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  payerName?: string;
+  settledAt?: string;
+  orNumber?: string;
+  reference?: string;
+  note?: string;
+  paidAt: string;
+  recordedBy: string;
+}
+
+export interface AdjustmentDto {
+  id: string;
+  kind: AdjustmentKind;
+  amount: number;
+  reason: string;
+  createdBy: string;
+  at: string;
+}
+
+export interface BookingEventDto {
+  id: string;
+  type: string;
+  detail?: string;
+  actor: string;
+  at: string;
+}
+
+export interface RoomStayDto {
+  roomName: string;
+  from: string;
+  to: string;
+  reason?: string;
+}
+
+export interface Booking {
+  id: string;
+  roomId: string;
+  roomName: string;
+  guestName: string;
+  contact?: string;
+  recipientId?: string;
+  groupId?: string;
+  groupName?: string;
+  checkIn: string; // date-only, "2026-09-18"
+  checkOut: string; // date-only, exclusive
+  nights: number; // as booked — never changes
+  billedNights: number; // what money is computed from
+  nightlyRate: number;
+  occupants: number;
+  status: BookingStatus;
+  holdUntil?: string;
+  complimentary: boolean;
+  compReason?: string;
+  /** What a complimentary stay would have billed. */
+  notionalValue?: number;
+  cancelReason?: string;
+  note?: string;
+  totals: FolioTotals;
+  createdBy: string;
+  createdAt: string;
+  /** Detail view only. */
+  payments?: PaymentDto[];
+  adjustments?: AdjustmentDto[];
+  events?: BookingEventDto[];
+  stays?: RoomStayDto[];
+}
+
+export interface RoomDto {
+  id: string;
+  name: string;
+  rate: number;
+  capacity?: number;
+  notes?: string;
+  outOfService: boolean;
+  needsCleaning: boolean;
+  /** Derived from stays + blocks, never hand-set. */
+  status: "AVAILABLE" | "OCCUPIED" | "MAINTENANCE";
+  /** Set when currently occupied. */
+  guestName?: string;
+  until?: string;
+  bookingId?: string;
+  blocks?: { id: string; from: string; to: string; reason: string }[];
+}
+
+export interface RoomAvailabilityDto {
+  id: string;
+  name: string;
+  rate: number;
+  capacity: number | null;
+  needsCleaning: boolean;
+  outOfService: boolean;
+  busyNights: string[];
+  free: boolean;
+  conflict: string | null;
+}
+
+export interface TodayBoard {
+  date: string;
+  counts: { arrivals: number; departures: number; inHouse: number; free: number; needsCleaning: number };
+  arrivals: Booking[];
+  departures: Booking[];
+  inHouse: Booking[];
+  /** CONFIRMED bookings whose check-in date has passed — one tap to no-show. */
+  didNotArrive: Booking[];
+  /** PENDING holds past their hold date. */
+  expiredHolds: Booking[];
+  rooms: RoomDto[];
+}
+
+export interface GuesthouseReport {
+  range: DashboardRangeKey;
+  totals: {
+    grossRevenue: number;
+    discounts: number;
+    extraCharges: number;
+    netRevenue: number;
+    collected: number;
+    supplyCost: number;
+    netContribution: number;
+    compedNights: number;
+    compedValue: number;
+    occupancyPct: number;
+    avgNightlyRate: number;
+    roomNightsSold: number;
+    roomNightsAvailable: number;
+    cancellations: number;
+    noShows: number;
+    outstanding: number;
+    refundsDue: number;
+    receivables: number;
+  };
+  series: { label: string; revenue: number; cost: number; nights: number }[];
+  roomPerformance: { name: string; nights: number; revenue: number; occupancyPct: number }[];
+  discountsGiven: {
+    id: string;
+    bookingId: string;
+    guestName: string;
+    amount: number;
+    reason: string;
+    by: string;
+    at: string;
+  }[];
+  outstandingBalances: { id: string; guestName: string; roomName: string; checkOut: string; balance: number }[];
+  refundsDue: { id: string; guestName: string; roomName: string; checkOut: string; amount: number }[];
+  receivables: {
+    paymentId: string;
+    bookingId: string;
+    guestName: string;
+    payerName: string;
+    amount: number;
+    paidAt: string;
+  }[];
+  lockedThrough?: string;
+}
+
+export type DashboardRangeKey = "day" | "week" | "month" | "year";

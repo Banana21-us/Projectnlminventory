@@ -1,0 +1,826 @@
+import {
+  Prisma,
+  type AdjustmentKind,
+  type BookingEventType,
+  type BookingStatus,
+  type PaymentMethod,
+} from "@prisma/client";
+import { prisma } from "./prisma";
+import { ApiError } from "./errors";
+
+// Guesthouse domain service — every booking/room state change and every
+// money row goes through here, so the lifecycle rules, availability checks
+// and folio arithmetic live in exactly one place (the same discipline
+// src/lib/stock.ts applies to quantities and costing).
+//
+// Derived, never stored:  charge = nightlyRate × billedNights (0 if comped)
+//                         netTotal = charge − discounts + charges
+//                         balance  = netTotal − payments
+//                         room status = from BookingRoomStay + RoomBlock
+
+// Neon's pooled connection makes interactive transactions slow; same
+// allowance stock.ts uses.
+const TX_OPTS = { timeout: 20_000, maxWait: 10_000 };
+
+/** Statuses that still hold their room against new bookings. CHECKED_OUT
+ *  counts because its stay rows are truncated to the nights actually used. */
+const BLOCKING: BookingStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
+
+/** Legal status moves. Everything else is rejected, and CHECKED_OUT /
+ *  CANCELLED / NO_SHOW are terminal — a change of mind is a new booking. */
+const TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["CHECKED_IN", "CANCELLED", "NO_SHOW"],
+  CHECKED_IN: ["CHECKED_OUT"],
+  CHECKED_OUT: [],
+  CANCELLED: [],
+  NO_SHOW: [],
+};
+
+// ── Dates ───────────────────────────────────────────────────────
+//
+// Stays are date-only. Vercel runs UTC while the guesthouse is in Manila,
+// so a local-midnight DateTime would shift a stay by a day and silently
+// bill an extra night. Everything here is UTC midnight.
+
+const DAY_MS = 86_400_000;
+
+/** Parse "2026-09-18" (or a Date) to UTC midnight. */
+export function dateOnly(input: string | Date): Date {
+  if (input instanceof Date) {
+    return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), input.getUTCDate()));
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(input);
+  if (!m) throw new ApiError(422, "Invalid date");
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+/** Today in Asia/Manila, as a UTC-midnight date. */
+export function todayInManila(): Date {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  return dateOnly(ymd);
+}
+
+export function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+/** Nights between two date-only values (check-out is exclusive). */
+export function nightsBetween(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / DAY_MS);
+}
+
+/** "2026-09-18" — what the API hands the client for a date-only field. */
+export function toDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+// ── Money ───────────────────────────────────────────────────────
+
+const money = (v: Prisma.Decimal | number): number => Math.round(Number(v) * 100) / 100;
+
+export interface FolioTotals {
+  charge: number;
+  discounts: number;
+  extraCharges: number;
+  netTotal: number;
+  paid: number;
+  balance: number;
+}
+
+type FolioInput = {
+  nightlyRate: Prisma.Decimal | number;
+  billedNights: number;
+  complimentary: boolean;
+  payments: { amount: Prisma.Decimal | number }[];
+  adjustments: { kind: AdjustmentKind; amount: Prisma.Decimal | number }[];
+};
+
+/** The one place folio arithmetic happens. Comped stays charge nothing but
+ *  keep their rate, so accounting can still report the notional value. */
+export function folioTotals(b: FolioInput): FolioTotals {
+  const charge = b.complimentary ? 0 : money(Number(b.nightlyRate) * b.billedNights);
+  let discounts = 0;
+  let extraCharges = 0;
+  for (const a of b.adjustments) {
+    if (a.kind === "DISCOUNT") discounts += money(a.amount);
+    else extraCharges += money(a.amount);
+  }
+  const netTotal = money(charge - discounts + extraCharges);
+  const paid = money(b.payments.reduce((s, p) => s + money(p.amount), 0));
+  return {
+    charge,
+    discounts: money(discounts),
+    extraCharges: money(extraCharges),
+    netTotal,
+    paid,
+    balance: money(netTotal - paid),
+  };
+}
+
+/** Notional value of a complimentary stay — what it would have billed. */
+export function notionalValue(b: { nightlyRate: Prisma.Decimal | number; billedNights: number }) {
+  return money(Number(b.nightlyRate) * b.billedNights);
+}
+
+// ── Period lock ─────────────────────────────────────────────────
+
+export async function lockedThrough(): Promise<Date | null> {
+  const settings = await prisma.guesthouseSettings.findUnique({ where: { id: "default" } });
+  return settings?.lockedThrough ?? null;
+}
+
+/** Guards any edit that would change a filed report. */
+export async function assertNotLocked(date: Date, what = "This period"): Promise<void> {
+  const through = await lockedThrough();
+  if (through && date <= through) {
+    throw new ApiError(
+      409,
+      `${what} falls on or before ${toDateString(through)}, which is closed. Unlock the period to edit it, or record the correction in the current period.`,
+    );
+  }
+}
+
+// ── Availability ────────────────────────────────────────────────
+
+export interface RoomAvailability {
+  id: string;
+  name: string;
+  rate: number;
+  capacity: number | null;
+  needsCleaning: boolean;
+  outOfService: boolean;
+  /** Occupied/blocked nights inside the queried window, as date strings. */
+  busyNights: string[];
+  /** Free for the whole queried range. */
+  free: boolean;
+  /** Why not, when free is false. */
+  conflict: string | null;
+}
+
+/**
+ * Room-by-room availability across a window. Powers the booking sheet's
+ * availability strip; the authoritative check for a write is
+ * `assertRoomFree`, which runs inside the insert transaction.
+ */
+export async function roomAvailability(
+  from: Date,
+  to: Date,
+  opts: { excludeBookingId?: string } = {},
+): Promise<RoomAvailability[]> {
+  const rooms = await prisma.room.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const [stays, blocks] = await Promise.all([
+    prisma.bookingRoomStay.findMany({
+      where: {
+        fromDate: { lt: to },
+        toDate: { gt: from },
+        ...(opts.excludeBookingId ? { bookingId: { not: opts.excludeBookingId } } : {}),
+        booking: { status: { in: BLOCKING } },
+      },
+      include: { booking: { select: { guestName: true, status: true } } },
+    }),
+    prisma.roomBlock.findMany({ where: { fromDate: { lt: to }, toDate: { gt: from } } }),
+  ]);
+
+  return rooms.map((room) => {
+    const busy = new Set<string>();
+    let conflict: string | null = null;
+
+    for (const s of stays.filter((s) => s.roomId === room.id)) {
+      for (let d = new Date(Math.max(+s.fromDate, +from)); d < s.toDate && d < to; d = addDays(d, 1)) {
+        busy.add(toDateString(d));
+      }
+      conflict ??= `Booked — ${s.booking.guestName}`;
+    }
+    for (const b of blocks.filter((b) => b.roomId === room.id)) {
+      for (let d = new Date(Math.max(+b.fromDate, +from)); d < b.toDate && d < to; d = addDays(d, 1)) {
+        busy.add(toDateString(d));
+      }
+      conflict ??= `Out of service — ${b.reason}`;
+    }
+    if (room.outOfService) conflict ??= "Out of service";
+
+    return {
+      id: room.id,
+      name: room.name,
+      rate: money(room.rate),
+      capacity: room.capacity,
+      needsCleaning: room.needsCleaning,
+      outOfService: room.outOfService,
+      busyNights: [...busy].sort(),
+      free: busy.size === 0 && !room.outOfService,
+      conflict: busy.size === 0 && !room.outOfService ? null : conflict,
+    };
+  });
+}
+
+/**
+ * The real double-booking guard. Must be called with the transaction client
+ * that also does the insert — two staff on two phones can otherwise both
+ * see a room free and both book it.
+ */
+async function assertRoomFree(
+  tx: Prisma.TransactionClient,
+  roomId: string,
+  from: Date,
+  to: Date,
+  excludeBookingId?: string,
+): Promise<void> {
+  const room = await tx.room.findUnique({ where: { id: roomId } });
+  if (!room || !room.active) throw new ApiError(404, "Room not found");
+  if (room.outOfService) throw new ApiError(409, `${room.name} is out of service`);
+
+  const clash = await tx.bookingRoomStay.findFirst({
+    where: {
+      roomId,
+      fromDate: { lt: to },
+      toDate: { gt: from },
+      ...(excludeBookingId ? { bookingId: { not: excludeBookingId } } : {}),
+      booking: { status: { in: BLOCKING } },
+    },
+    include: { booking: { select: { guestName: true } } },
+  });
+  if (clash) {
+    throw new ApiError(
+      409,
+      `${room.name} is already booked for those dates (${clash.booking.guestName}). Pick another room.`,
+    );
+  }
+
+  const block = await tx.roomBlock.findFirst({
+    where: { roomId, fromDate: { lt: to }, toDate: { gt: from } },
+  });
+  if (block) throw new ApiError(409, `${room.name} is out of service — ${block.reason}`);
+}
+
+// ── Events ──────────────────────────────────────────────────────
+
+async function logEvent(
+  tx: Prisma.TransactionClient,
+  bookingId: string,
+  actorId: string,
+  type: BookingEventType,
+  opts: { from?: BookingStatus; to?: BookingStatus; detail?: string | null } = {},
+) {
+  await tx.bookingEvent.create({
+    data: {
+      bookingId,
+      actorId,
+      type,
+      fromStatus: opts.from ?? null,
+      toStatus: opts.to ?? null,
+      detail: opts.detail ?? null,
+    },
+  });
+}
+
+// ── Create ──────────────────────────────────────────────────────
+
+export interface CreateBookingInput {
+  roomIds: string[]; // more than one = a group booking
+  guestName: string;
+  contact?: string | null;
+  recipientId?: string | null;
+  groupName?: string | null;
+  checkIn: string;
+  checkOut: string;
+  occupants?: number;
+  note?: string | null;
+  /** Tentative hold instead of a firm booking. */
+  tentative?: boolean;
+  holdUntil?: string | null;
+  /** ADMIN only — bills nothing, records notional value. */
+  complimentary?: boolean;
+  compReason?: string | null;
+  /** ADMIN only — walk-in/backdated entry skips the past-date guard. */
+  allowPastDates?: boolean;
+  /** Create, confirm and check in at once (walk-in). */
+  checkInNow?: boolean;
+  rateOverride?: number | null;
+}
+
+export async function createBooking(input: CreateBookingInput, actorId: string) {
+  const checkIn = dateOnly(input.checkIn);
+  const checkOut = dateOnly(input.checkOut);
+  const nights = nightsBetween(checkIn, checkOut);
+
+  if (nights < 1) throw new ApiError(422, "Check-out must be at least one night after check-in");
+  if (nights > 365) throw new ApiError(422, "A stay cannot exceed 365 nights");
+  if (!input.roomIds.length) throw new ApiError(422, "Pick at least one room");
+  if (!input.allowPastDates && checkIn < todayInManila()) {
+    throw new ApiError(422, "Check-in is in the past. An ADMIN can record a backdated stay.");
+  }
+  await assertNotLocked(checkIn, "That stay");
+
+  const status: BookingStatus = input.checkInNow
+    ? "CHECKED_IN"
+    : input.tentative
+      ? "PENDING"
+      : "CONFIRMED";
+  const groupId = input.roomIds.length > 1 ? crypto.randomUUID() : null;
+
+  return prisma.$transaction(async (tx) => {
+    const created = [];
+    for (const roomId of input.roomIds) {
+      await assertRoomFree(tx, roomId, checkIn, checkOut);
+      const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
+
+      const booking = await tx.booking.create({
+        data: {
+          roomId,
+          guestName: input.guestName,
+          contact: input.contact ?? null,
+          recipientId: input.recipientId ?? null,
+          groupId,
+          groupName: groupId ? (input.groupName ?? input.guestName) : null,
+          checkIn,
+          checkOut,
+          nights,
+          billedNights: nights,
+          nightlyRate: input.rateOverride ?? room.rate,
+          occupants: input.occupants ?? 1,
+          status,
+          holdUntil: input.tentative && input.holdUntil ? dateOnly(input.holdUntil) : null,
+          complimentary: input.complimentary ?? false,
+          compReason: input.complimentary ? (input.compReason ?? null) : null,
+          note: input.note ?? null,
+          actualCheckIn: input.checkInNow ? new Date() : null,
+          createdById: actorId,
+        },
+      });
+
+      await tx.bookingRoomStay.create({
+        data: { bookingId: booking.id, roomId, fromDate: checkIn, toDate: checkOut },
+      });
+
+      await logEvent(tx, booking.id, actorId, "CREATED", {
+        to: status,
+        detail: input.checkInNow
+          ? "Walk-in — created and checked in"
+          : input.allowPastDates && checkIn < todayInManila()
+            ? "Backdated entry"
+            : null,
+      });
+      if (input.complimentary) {
+        await logEvent(tx, booking.id, actorId, "COMPED", {
+          detail: input.compReason ?? "Complimentary stay",
+        });
+      }
+      created.push(booking);
+    }
+    return created;
+  }, TX_OPTS);
+}
+
+// ── Lifecycle ───────────────────────────────────────────────────
+
+function assertTransition(from: BookingStatus, to: BookingStatus) {
+  if (!TRANSITIONS[from].includes(to)) {
+    throw new ApiError(409, `A ${from.toLowerCase().replace("_", " ")} booking cannot become ${to.toLowerCase().replace("_", " ")}`);
+  }
+}
+
+export async function confirmBooking(id: string, actorId: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    assertTransition(booking.status, "CONFIRMED");
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { status: "CONFIRMED", holdUntil: null },
+    });
+    await logEvent(tx, id, actorId, "CONFIRMED", { from: booking.status, to: "CONFIRMED" });
+    return updated;
+  }, TX_OPTS);
+}
+
+export async function checkInBooking(id: string, actorId: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    assertTransition(booking.status, "CHECKED_IN");
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { status: "CHECKED_IN", actualCheckIn: new Date() },
+    });
+    await logEvent(tx, id, actorId, "CHECKED_IN", { from: booking.status, to: "CHECKED_IN" });
+    return updated;
+  }, TX_OPTS);
+}
+
+/**
+ * Check out, settling how many nights to actually bill. An early departure
+ * truncates the stay row so the unused nights free up immediately, and
+ * leaves `nights` (the reservation of record) untouched.
+ */
+export async function checkOutBooking(
+  id: string,
+  actorId: string,
+  opts: { billedNights?: number } = {},
+) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    assertTransition(booking.status, "CHECKED_OUT");
+
+    const today = todayInManila();
+    const stayedNights = Math.max(1, Math.min(booking.nights, nightsBetween(booking.checkIn, today)));
+    const billedNights = opts.billedNights ?? stayedNights;
+    if (billedNights < 1 || billedNights > booking.nights) {
+      throw new ApiError(422, `Billed nights must be between 1 and ${booking.nights}`);
+    }
+
+    // Free the unused tail of an early departure.
+    const actualEnd = addDays(booking.checkIn, billedNights);
+    if (actualEnd < booking.checkOut) {
+      const last = await tx.bookingRoomStay.findFirst({
+        where: { bookingId: id },
+        orderBy: { fromDate: "desc" },
+      });
+      if (last && last.toDate > actualEnd) {
+        await tx.bookingRoomStay.update({
+          where: { id: last.id },
+          data: { toDate: actualEnd > last.fromDate ? actualEnd : addDays(last.fromDate, 1) },
+        });
+      }
+    }
+
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { status: "CHECKED_OUT", actualCheckOut: new Date(), billedNights },
+    });
+    await tx.room.update({ where: { id: booking.roomId }, data: { needsCleaning: true } });
+
+    await logEvent(tx, id, actorId, "CHECKED_OUT", {
+      from: booking.status,
+      to: "CHECKED_OUT",
+      detail:
+        billedNights !== booking.nights
+          ? `Early checkout — booked ${booking.nights} night(s), billed ${billedNights}`
+          : null,
+    });
+    return updated;
+  }, TX_OPTS);
+}
+
+export async function cancelBooking(id: string, actorId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id },
+      include: { payments: true },
+    });
+    assertTransition(booking.status, "CANCELLED");
+    if (booking.payments.length > 0) {
+      throw new ApiError(
+        409,
+        "This booking already has payments on it. Refund them first (ADMIN), then cancel.",
+      );
+    }
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { status: "CANCELLED", cancelReason: reason },
+    });
+    // Stay rows stay for audit; BLOCKING excludes CANCELLED, so the room
+    // frees immediately.
+    await logEvent(tx, id, actorId, "CANCELLED", {
+      from: booking.status,
+      to: "CANCELLED",
+      detail: reason,
+    });
+    return updated;
+  }, TX_OPTS);
+}
+
+export async function markNoShow(id: string, actorId: string, reason?: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    assertTransition(booking.status, "NO_SHOW");
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { status: "NO_SHOW", cancelReason: reason ?? "Did not arrive" },
+    });
+    await logEvent(tx, id, actorId, "NO_SHOW", { from: booking.status, to: "NO_SHOW" });
+    return updated;
+  }, TX_OPTS);
+}
+
+// ── Changes to a live booking ───────────────────────────────────
+
+/** Extend (or shorten, before check-in) a stay by moving the check-out date. */
+export async function changeDates(
+  id: string,
+  actorId: string,
+  next: { checkIn?: string; checkOut: string },
+) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    if (booking.status !== "PENDING" && booking.status !== "CONFIRMED" && booking.status !== "CHECKED_IN") {
+      throw new ApiError(409, "Only an upcoming or in-house booking can have its dates changed");
+    }
+    const checkIn = next.checkIn ? dateOnly(next.checkIn) : booking.checkIn;
+    const checkOut = dateOnly(next.checkOut);
+    if (booking.status === "CHECKED_IN" && +checkIn !== +booking.checkIn) {
+      throw new ApiError(409, "The guest has already checked in — the arrival date cannot change");
+    }
+    const nights = nightsBetween(checkIn, checkOut);
+    if (nights < 1) throw new ApiError(422, "Check-out must be at least one night after check-in");
+    await assertNotLocked(checkIn, "That stay");
+    await assertRoomFree(tx, booking.roomId, checkIn, checkOut, id);
+
+    // One stay row is the normal case; a moved booking keeps its history and
+    // only its current (last) row is re-dated.
+    const stays = await tx.bookingRoomStay.findMany({
+      where: { bookingId: id },
+      orderBy: { fromDate: "asc" },
+    });
+    const first = stays[0];
+    const last = stays[stays.length - 1];
+    if (first) await tx.bookingRoomStay.update({ where: { id: first.id }, data: { fromDate: checkIn } });
+    if (last) await tx.bookingRoomStay.update({ where: { id: last.id }, data: { toDate: checkOut } });
+
+    const extended = nights > booking.nights;
+    const updated = await tx.booking.update({
+      where: { id },
+      data: { checkIn, checkOut, nights, billedNights: nights },
+    });
+    await logEvent(tx, id, actorId, extended ? "EXTENDED" : "DATES_CHANGED", {
+      detail: `${booking.nights} night(s) → ${nights} night(s) (${toDateString(checkIn)} → ${toDateString(checkOut)})`,
+    });
+    return updated;
+  }, TX_OPTS);
+}
+
+/**
+ * Move a guest to another room mid-stay. The original stay row is closed at
+ * the move date and a new one opens, so occupancy history stays truthful and
+ * the vacated nights free up. The snapshot rate deliberately does not change
+ * — if the move should cost less, ADMIN applies a discount explicitly.
+ */
+export async function changeRoom(id: string, actorId: string, roomId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id }, include: { room: true } });
+    if (!["PENDING", "CONFIRMED", "CHECKED_IN"].includes(booking.status)) {
+      throw new ApiError(409, "Only an upcoming or in-house booking can change room");
+    }
+    if (roomId === booking.roomId) throw new ApiError(422, "That is already the assigned room");
+
+    const today = todayInManila();
+    // Before arrival the whole stay moves; mid-stay it splits at today.
+    const moveFrom =
+      booking.status === "CHECKED_IN" && today > booking.checkIn && today < booking.checkOut
+        ? today
+        : booking.checkIn;
+
+    await assertRoomFree(tx, roomId, moveFrom, booking.checkOut, id);
+    const target = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
+
+    const last = await tx.bookingRoomStay.findFirst({
+      where: { bookingId: id },
+      orderBy: { fromDate: "desc" },
+    });
+    if (last && +moveFrom > +last.fromDate) {
+      await tx.bookingRoomStay.update({ where: { id: last.id }, data: { toDate: moveFrom } });
+      await tx.bookingRoomStay.create({
+        data: { bookingId: id, roomId, fromDate: moveFrom, toDate: booking.checkOut, reason },
+      });
+    } else if (last) {
+      await tx.bookingRoomStay.update({ where: { id: last.id }, data: { roomId, reason } });
+    }
+
+    if (booking.status === "CHECKED_IN") {
+      await tx.room.update({ where: { id: booking.roomId }, data: { needsCleaning: true } });
+    }
+    const updated = await tx.booking.update({ where: { id }, data: { roomId } });
+    await logEvent(tx, id, actorId, "ROOM_CHANGED", {
+      detail: `${booking.room.name} → ${target.name}${moveFrom > booking.checkIn ? ` from ${toDateString(moveFrom)}` : ""} · ${reason}`,
+    });
+    return updated;
+  }, TX_OPTS);
+}
+
+/**
+ * ADMIN correction after checkout — "booked 4 nights, actually stayed 2".
+ * Re-bills without touching `nights`, and can leave a refund owing, which
+ * the accounting page surfaces rather than hiding as a negative balance.
+ */
+export async function adjustBilledNights(
+  id: string,
+  actorId: string,
+  billedNights: number,
+  reason: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    if (booking.status !== "CHECKED_OUT") {
+      throw new ApiError(409, "Only a checked-out stay can have its billed nights corrected");
+    }
+    if (billedNights < 1 || billedNights > booking.nights) {
+      throw new ApiError(422, `Billed nights must be between 1 and ${booking.nights}`);
+    }
+    await assertNotLocked(booking.checkIn, "That stay");
+    if (billedNights === booking.billedNights) throw new ApiError(422, "That is already the billed count");
+
+    const updated = await tx.booking.update({ where: { id }, data: { billedNights } });
+    await logEvent(tx, id, actorId, "NIGHTS_ADJUSTED", {
+      detail: `Billed nights ${booking.billedNights} → ${billedNights} · ${reason}`,
+    });
+    return updated;
+  }, TX_OPTS);
+}
+
+// ── Money ───────────────────────────────────────────────────────
+
+export interface RecordPaymentInput {
+  amount: number;
+  method: PaymentMethod;
+  payerId?: string | null;
+  orNumber?: string | null;
+  reference?: string | null;
+  note?: string | null;
+  paidAt?: string | null;
+}
+
+/**
+ * Settlement. Payment happens at (or after) checkout — never in advance,
+ * since the guesthouse takes no deposits. A negative amount is a refund and
+ * is gated on guesthouse.adjust by the route.
+ */
+export async function recordPayment(id: string, actorId: string, input: RecordPaymentInput) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id },
+      include: { payments: true, adjustments: true },
+    });
+    if (booking.complimentary) {
+      throw new ApiError(409, "This is a complimentary stay — there is nothing to settle");
+    }
+    if (booking.status !== "CHECKED_IN" && booking.status !== "CHECKED_OUT") {
+      throw new ApiError(409, "A stay can only be settled at or after checkout");
+    }
+    await assertNotLocked(booking.checkIn, "That stay");
+
+    const amount = Math.round(input.amount * 100) / 100;
+    if (amount === 0) throw new ApiError(422, "Amount cannot be zero");
+
+    const totals = folioTotals(booking);
+    if (amount > 0 && amount > totals.balance) {
+      throw new ApiError(
+        422,
+        `That is more than the ₱${totals.balance.toFixed(2)} outstanding on this stay`,
+      );
+    }
+    if (amount < 0 && Math.abs(amount) > totals.paid) {
+      throw new ApiError(422, "A refund cannot exceed what was paid");
+    }
+    if (input.method === "CHARGE_TO_DEPARTMENT" && !input.payerId) {
+      throw new ApiError(422, "Pick the department or district being charged");
+    }
+
+    const payment = await tx.payment.create({
+      data: {
+        bookingId: id,
+        amount,
+        method: input.method,
+        payerId: input.method === "CHARGE_TO_DEPARTMENT" ? input.payerId : null,
+        orNumber: input.orNumber ?? null,
+        reference: input.reference ?? null,
+        note: input.note ?? null,
+        paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
+        recordedById: actorId,
+      },
+    });
+    await logEvent(tx, id, actorId, amount < 0 ? "REFUND_RECORDED" : "PAYMENT_RECORDED", {
+      detail: `₱${Math.abs(amount).toFixed(2)} · ${input.method.replace(/_/g, " ").toLowerCase()}`,
+    });
+    return payment;
+  }, TX_OPTS);
+}
+
+/**
+ * ADMIN-only folio adjustment. A discount may only be applied *before* any
+ * payment exists — otherwise it would create money owed back, which is a
+ * refund decision, not a pricing one.
+ */
+export async function recordAdjustment(
+  id: string,
+  actorId: string,
+  input: { kind: AdjustmentKind; amount: number; reason: string },
+) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id },
+      include: { payments: true, adjustments: true },
+    });
+    if (booking.complimentary) {
+      throw new ApiError(409, "This is a complimentary stay — it bills nothing to adjust");
+    }
+    if (booking.status === "CANCELLED" || booking.status === "NO_SHOW") {
+      throw new ApiError(409, "That booking never happened — there is nothing to adjust");
+    }
+    await assertNotLocked(booking.checkIn, "That stay");
+
+    const amount = Math.round(input.amount * 100) / 100;
+    if (amount <= 0) throw new ApiError(422, "Amount must be greater than zero");
+
+    const totals = folioTotals(booking);
+    if (input.kind === "DISCOUNT") {
+      if (booking.payments.length > 0) {
+        throw new ApiError(
+          409,
+          "This stay is already settled — a discount has to be applied before payment.",
+        );
+      }
+      if (amount > totals.netTotal) {
+        throw new ApiError(422, `A discount cannot exceed the ₱${totals.netTotal.toFixed(2)} charge`);
+      }
+    }
+
+    const adjustment = await tx.folioAdjustment.create({
+      data: { bookingId: id, kind: input.kind, amount, reason: input.reason, createdById: actorId },
+    });
+    await logEvent(tx, id, actorId, input.kind === "DISCOUNT" ? "DISCOUNT_APPLIED" : "CHARGE_ADDED", {
+      detail: `₱${amount.toFixed(2)} · ${input.reason}`,
+    });
+    return adjustment;
+  }, TX_OPTS);
+}
+
+/** Mark charged-to-department stays as paid by the department, in one batch. */
+export async function settleReceivables(paymentIds: string[], actorId: string) {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.payment.findMany({
+      where: { id: { in: paymentIds }, method: "CHARGE_TO_DEPARTMENT", settledAt: null },
+    });
+    if (!rows.length) throw new ApiError(404, "Nothing outstanding to settle");
+    const now = new Date();
+    await tx.payment.updateMany({
+      where: { id: { in: rows.map((r) => r.id) } },
+      data: { settledAt: now },
+    });
+    for (const r of rows) {
+      await logEvent(tx, r.bookingId, actorId, "RECEIVABLE_SETTLED", {
+        detail: `₱${Number(r.amount).toFixed(2)} settled by department`,
+      });
+    }
+    return rows.length;
+  }, TX_OPTS);
+}
+
+// ── Room status (derived) ───────────────────────────────────────
+
+export type DerivedRoomStatus = "AVAILABLE" | "OCCUPIED" | "MAINTENANCE";
+
+export function deriveRoomStatus(
+  room: { outOfService: boolean },
+  opts: { occupied: boolean; blocked: boolean },
+): DerivedRoomStatus {
+  if (room.outOfService || opts.blocked) return "MAINTENANCE";
+  return opts.occupied ? "OCCUPIED" : "AVAILABLE";
+}
+
+/**
+ * The room board for a given day, with status derived from who is actually
+ * in the room. Shared by the rooms endpoint and the Today board so the two
+ * can never disagree.
+ */
+export async function roomBoard(day: Date = todayInManila()) {
+  const next = addDays(day, 1);
+  const [rooms, stays, blocks] = await Promise.all([
+    prisma.room.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.bookingRoomStay.findMany({
+      where: { fromDate: { lte: day }, toDate: { gt: day }, booking: { status: "CHECKED_IN" } },
+      include: { booking: { select: { id: true, guestName: true, checkOut: true } } },
+    }),
+    prisma.roomBlock.findMany({ where: { fromDate: { lt: next }, toDate: { gt: day } } }),
+  ]);
+
+  return rooms.map((room) => {
+    const stay = stays.find((s) => s.roomId === room.id);
+    const roomBlocks = blocks.filter((b) => b.roomId === room.id);
+    return {
+      id: room.id,
+      name: room.name,
+      rate: money(room.rate),
+      ...(room.capacity ? { capacity: room.capacity } : {}),
+      ...(room.notes ? { notes: room.notes } : {}),
+      outOfService: room.outOfService,
+      needsCleaning: room.needsCleaning,
+      status: deriveRoomStatus(room, { occupied: !!stay, blocked: roomBlocks.length > 0 }),
+      ...(stay
+        ? {
+            guestName: stay.booking.guestName,
+            until: toDateString(stay.booking.checkOut),
+            bookingId: stay.booking.id,
+          }
+        : {}),
+      blocks: roomBlocks.map((b) => ({
+        id: b.id,
+        from: toDateString(b.fromDate),
+        to: toDateString(b.toDate),
+        reason: b.reason,
+      })),
+    };
+  });
+}

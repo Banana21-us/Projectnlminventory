@@ -253,3 +253,120 @@ export const itemUpdateSchema = z.object({
 export const itemDeleteSchema = z.object({
   id: z.string().min(1),
 });
+
+// ── Guesthouse ──────────────────────────────────────────────────
+
+/** Date-only, "2026-09-18" — stays never carry a time-of-day. */
+const dateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date");
+
+export const bookingCreateSchema = z
+  .object({
+    roomIds: z.array(z.string().min(1)).min(1, "Pick at least one room").max(20),
+    guestName: z.string().trim().min(1, "Guest name is required").max(120),
+    contact: z.string().trim().max(120).optional(),
+    recipientId: z.string().optional(),
+    groupName: z.string().trim().max(120).optional(),
+    checkIn: dateString,
+    checkOut: dateString,
+    occupants: z.number().int().min(1).max(20).optional(),
+    note: z.string().trim().max(500).optional(),
+    tentative: z.boolean().optional(),
+    holdUntil: dateString.optional(),
+    complimentary: z.boolean().optional(),
+    compReason: z.string().trim().max(200).optional(),
+    allowPastDates: z.boolean().optional(),
+    checkInNow: z.boolean().optional(),
+    rateOverride: z.number().min(0).optional(),
+  })
+  .refine((d) => d.checkOut > d.checkIn, {
+    message: "Check-out must be after check-in",
+    path: ["checkOut"],
+  })
+  .refine((d) => !d.complimentary || !!d.compReason, {
+    message: "A complimentary stay needs a reason",
+    path: ["compReason"],
+  });
+
+export const bookingActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("confirm") }),
+  z.object({ action: z.literal("checkIn") }),
+  z.object({
+    action: z.literal("checkOut"),
+    billedNights: z.number().int().min(1).optional(),
+  }),
+  z.object({
+    action: z.literal("cancel"),
+    reason: z.string().trim().min(1, "A cancellation reason is required").max(200),
+  }),
+  z.object({ action: z.literal("noShow"), reason: z.string().trim().max(200).optional() }),
+  z.object({
+    action: z.literal("changeDates"),
+    checkIn: dateString.optional(),
+    checkOut: dateString,
+  }),
+  z.object({
+    action: z.literal("changeRoom"),
+    roomId: z.string().min(1, "Pick a room"),
+    reason: z.string().trim().min(1, "A reason is required").max(200),
+  }),
+  z.object({
+    action: z.literal("adjustNights"),
+    billedNights: z.number().int().min(1),
+    reason: z.string().trim().min(1, "A reason is required").max(200),
+  }),
+]);
+
+export const paymentCreateSchema = z.object({
+  amount: z.number().refine((v) => v !== 0, "Amount cannot be zero"),
+  method: z.enum(["CASH", "BANK_TRANSFER", "GCASH", "CHECK", "CHARGE_TO_DEPARTMENT", "OTHER"]),
+  payerId: z.string().optional(),
+  orNumber: z.string().trim().max(40).optional(),
+  reference: z.string().trim().max(120).optional(),
+  note: z.string().trim().max(500).optional(),
+  paidAt: z.string().optional(),
+});
+
+export const adjustmentCreateSchema = z.object({
+  kind: z.enum(["DISCOUNT", "CHARGE"]),
+  amount: z.number().min(0.01, "Amount must be greater than zero"),
+  reason: z.string().trim().min(1, "A reason is required").max(200),
+});
+
+export const roomCreateSchema = z.object({
+  name: z.string().trim().min(1, "Room name is required").max(60),
+  rate: z.number().min(0).default(0),
+  capacity: z.number().int().min(1).max(20).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+export const roomUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  rate: z.number().min(0).optional(),
+  capacity: z.number().int().min(1).max(20).nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+  outOfService: z.boolean().optional(),
+  needsCleaning: z.boolean().optional(),
+  active: z.boolean().optional(),
+});
+
+export const roomBlockSchema = z
+  .object({
+    roomId: z.string().min(1),
+    fromDate: dateString,
+    toDate: dateString,
+    reason: z.string().trim().min(1, "A reason is required").max(200),
+  })
+  .refine((d) => d.toDate > d.fromDate, {
+    message: "The block must end after it starts",
+    path: ["toDate"],
+  });
+
+export const receivableSettleSchema = z.object({
+  paymentIds: z.array(z.string().min(1)).min(1, "Pick at least one charge to settle"),
+});
+
+export const periodLockSchema = z.object({
+  lockedThrough: dateString.nullable(),
+});

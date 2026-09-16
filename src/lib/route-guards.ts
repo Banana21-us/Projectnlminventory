@@ -8,7 +8,12 @@ import type { Role } from "@prisma/client";
 const GUARDS: { pattern: RegExp; roles: Role[] }[] = [
   { pattern: /^\/admin(\/|$)/, roles: ["ADMIN"] },
   { pattern: /^\/api\/admin(\/|$)/, roles: ["ADMIN"] },
+  // Money and room setup are ADMIN-only; these must sit above the general
+  // /guesthouse rule because the first matching prefix wins.
+  { pattern: /^\/guesthouse\/(accounting|rooms)(\/|$)/, roles: ["ADMIN"] },
   { pattern: /^\/guesthouse(\/|$)/, roles: ["ADMIN", "GUESTHOUSE"] },
+  // The guesthouse API is open to both roles at the perimeter; the
+  // ADMIN-only operations inside it are gated per-handler by requireCan().
   { pattern: /^\/api\/guesthouse(\/|$)/, roles: ["ADMIN", "GUESTHOUSE"] },
   {
     pattern: /^\/(dashboard|inventory|dispense|log|receiving|reports)(\/|$)/,
