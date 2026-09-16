@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
+import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
 import { BOOKING_STATUS_LABELS, type Booking, type RoomDto, type TodayBoard } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -109,6 +110,8 @@ function Section({
 export default function GuesthousePage() {
   const { data, loading, refetch } = useFetch<TodayBoard>("/api/guesthouse/today");
   const toast = useToast();
+  const { can } = useCurrentUser();
+  const isAdmin = can("guesthouse.adjust");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [walkIn, setWalkIn] = useState(false);
   // Bumped each time the sheet opens so BookingSheet remounts with a clean
@@ -249,13 +252,17 @@ export default function GuesthousePage() {
                 booking={b}
                 onOpen={() => setOpenId(b.id)}
                 primary={{
-                  // Unpaid departures route through the folio rather than
-                  // checking out silently — this is the walkout guardrail.
+                  // Unpaid departures route through the folio for an ADMIN
+                  // to settle first — front desk never touches cash, so
+                  // they just check out and the balance stays outstanding
+                  // until an ADMIN records the payment separately.
                   label:
-                    b.totals.balance > 0 && !b.complimentary ? "Settle & check out" : "Check out",
-                  tone: b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
+                    isAdmin && b.totals.balance > 0 && !b.complimentary
+                      ? "Settle & check out"
+                      : "Check out",
+                  tone: isAdmin && b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
                   onClick: () =>
-                    b.totals.balance > 0 && !b.complimentary
+                    isAdmin && b.totals.balance > 0 && !b.complimentary
                       ? setOpenId(b.id)
                       : quickAction(b.id, { action: "checkOut" }, "Checked out"),
                 }}

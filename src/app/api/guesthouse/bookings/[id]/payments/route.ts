@@ -7,15 +7,14 @@ import { paymentCreateSchema } from "@/lib/validators";
 /**
  * POST /api/guesthouse/bookings/[id]/payments
  *
- * Front desk settles a stay; handing money back is a different decision, so
- * a negative amount (a refund) needs guesthouse.adjust.
+ * Cash is entirely ADMIN-only — front desk manages rooms and dates but never
+ * touches money, recording it or refunding it. guesthouse.manage alone is
+ * not enough here, unlike most of the booking lifecycle.
  */
 export const POST = api(async (request, { params }: { params: Promise<{ id: string }> }) => {
-  const user = await requireCan("guesthouse.manage");
+  const user = await requireCan("guesthouse.adjust");
   const { id } = await params;
   const data = await validate(request, paymentCreateSchema);
-
-  if (data.amount < 0) await requireCan("guesthouse.adjust");
 
   await recordPayment(id, user.id, {
     amount: data.amount,

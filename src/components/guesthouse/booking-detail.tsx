@@ -708,7 +708,8 @@ export function BookingDetail({
                   <LogOut className="h-4 w-4" /> Check out
                 </Button>
               )}
-              {!booking.complimentary &&
+              {isAdmin &&
+                !booking.complimentary &&
                 (booking.status === "CHECKED_IN" || booking.status === "CHECKED_OUT") &&
                 booking.totals.balance > 0 && (
                   <Button variant="accent" className="col-span-2" onClick={() => openPanel("settle", booking)}>
