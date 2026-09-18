@@ -4,6 +4,9 @@ import { CATEGORY_LABELS, type CountSheetRow } from "@/lib/types";
 
 const logoDataUri = `data:image/png;base64,${LOGO_PNG_BASE64}`;
 
+const money = (n: number) =>
+  `PHP ${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 Font.registerHyphenationCallback((word) => [word]);
 
 const styles = StyleSheet.create({
@@ -31,13 +34,15 @@ const styles = StyleSheet.create({
     borderRight: "1 solid #d6d6d0",
     borderBottom: "1 solid #d6d6d0",
   },
-  colItem: { width: "22%" },
-  colCategory: { width: "10%" },
-  colShelf: { width: "7%" },
-  colLocation: { width: "12%" },
-  colQty: { width: "8%", textAlign: "right" },
-  colEnding: { width: "11%", textAlign: "right" },
-  colCount: { width: "14%" },
+  colItem: { width: "24%" },
+  colShelf: { width: "8%" },
+  colLocation: { width: "13%" },
+  colQty: { width: "9%", textAlign: "right" },
+  colEnding: { width: "13%", textAlign: "right" },
+  colCount: { width: "16%" },
+  itemCategory: { fontSize: 7, color: "#6b7280", marginTop: 1 },
+  itemPrice: { fontSize: 7, color: "#6b7280", marginTop: 1 },
+  endingTotal: { fontSize: 7, color: "#6b7280", marginTop: 1 },
   signatures: { flexDirection: "row", gap: 24, marginTop: 36 },
   sigBlock: { flexGrow: 1, flexBasis: 0 },
   sigLine: { borderTop: "1 solid #18181b", marginBottom: 4, marginTop: 28 },
@@ -89,7 +94,6 @@ export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetRe
         <View style={styles.table}>
           <View style={[styles.tr, styles.thRow]} fixed>
             <Text style={[styles.th, styles.colItem]}>Item</Text>
-            <Text style={[styles.th, styles.colCategory]}>Category</Text>
             <Text style={[styles.th, styles.colShelf]}>Shelf</Text>
             <Text style={[styles.th, styles.colLocation]}>Location</Text>
             <Text style={[styles.th, styles.colQty]}>Beginning</Text>
@@ -102,8 +106,11 @@ export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetRe
           </View>
           {sorted.map((row) => (
             <View style={styles.tr} key={row.id} wrap={false}>
-              <Text style={[styles.td, styles.colItem]}>{row.name}</Text>
-              <Text style={[styles.td, styles.colCategory]}>{CATEGORY_LABELS[row.category]}</Text>
+              <View style={[styles.td, styles.colItem]}>
+                <Text>{row.name}</Text>
+                <Text style={styles.itemCategory}>{CATEGORY_LABELS[row.category]}</Text>
+                <Text style={styles.itemPrice}>{money(row.sellingPrice)}</Text>
+              </View>
               <Text style={[styles.td, styles.colShelf]}>{row.shelf}</Text>
               <Text style={[styles.td, styles.colLocation]}>{row.location}</Text>
               <Text style={[styles.td, styles.colQty]}>{row.beginning}</Text>
@@ -111,9 +118,12 @@ export function CountSheetDocument({ rows, from, to, generatedBy }: CountSheetRe
               <Text style={[styles.td, styles.colQty]}>{row.outQty}</Text>
               <Text style={[styles.td, styles.colQty]}>{row.returnedQty}</Text>
               <Text style={[styles.td, styles.colQty]}>{row.writeOffQty}</Text>
-              <Text style={[styles.td, styles.colEnding]}>
-                {row.ending} {row.unit}
-              </Text>
+              <View style={[styles.td, styles.colEnding]}>
+                <Text>
+                  {row.ending} {row.unit}
+                </Text>
+                <Text style={styles.endingTotal}>{money(row.inQty * row.sellingPrice)}</Text>
+              </View>
               <Text style={[styles.td, styles.colCount]}> </Text>
             </View>
           ))}

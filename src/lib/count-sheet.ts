@@ -55,7 +55,7 @@ export async function buildCountSheet(start: Date, end: Date): Promise<CountShee
     const b = buckets.get(`${row.itemId}:${row.stockroomId}`);
     const ending = row.quantity - (b?.after ?? 0);
     return {
-      ...toItemDto(row, { withPricing: false }),
+      ...toItemDto(row, { withPricing: true }),
       beginning: ending - (b?.net ?? 0),
       inQty: b?.inQty ?? 0,
       outQty: b?.outQty ?? 0,
