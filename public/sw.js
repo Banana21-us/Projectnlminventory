@@ -1,9 +1,9 @@
-const CACHE = "mission-supply-v2";
+const CACHE = "mission-supply-v3";
 const STATIC_ASSETS = [
-  "/icon-192.svg",
-  "/icon-512.svg",
-  "/icon-192-maskable.svg",
-  "/icon-512-maskable.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-192-maskable.png",
+  "/icon-512-maskable.png",
 ];
 
 self.addEventListener("install", (event) => {

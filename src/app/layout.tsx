@@ -22,9 +22,6 @@ export const metadata: Metadata = {
     template: "%s · Mission Supply",
   },
   description: "Inventory and dispensing for the mission station.",
-  icons: {
-    icon: "/logo-churches.png",
-  },
 };
 
 export const viewport: Viewport = {
