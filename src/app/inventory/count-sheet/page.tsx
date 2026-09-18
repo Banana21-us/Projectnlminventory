@@ -7,6 +7,7 @@ import { ShelfTag } from "@/components/shelf-tag";
 import { StatusBadge } from "@/components/stock";
 import { Button } from "@/components/ui/button";
 import { useFetch } from "@/lib/hooks";
+import { formatCurrency } from "@/lib/format";
 import { CATEGORY_LABELS, type CountSheetRow, type CountSheetTotals } from "@/lib/types";
 
 function isoDate(d: Date): string {
@@ -186,7 +187,6 @@ export default function CountSheetPage() {
               <thead>
                 <tr className="text-left text-xs font-medium text-ink-faint">
                   <th className="px-4 py-3">Item</th>
-                  <th className="px-3 py-3">Category</th>
                   <th className="px-3 py-3">Shelf</th>
                   <th className="px-3 py-3">Location</th>
                   <th className="px-3 py-3 text-right">Beginning</th>
@@ -201,8 +201,15 @@ export default function CountSheetPage() {
               <tbody className="divide-y divide-line">
                 {sorted.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-4 py-3 font-medium text-ink">{row.name}</td>
-                    <td className="px-3 py-3 text-ink-soft">{CATEGORY_LABELS[row.category]}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-ink">{row.name}</p>
+                      <p className="mt-0.5 text-[11px] text-ink-faint">
+                        {CATEGORY_LABELS[row.category]}
+                      </p>
+                      <p className="text-[11px] text-ink-faint">
+                        {formatCurrency(row.sellingPrice)}
+                      </p>
+                    </td>
                     <td className="px-3 py-3">
                       <ShelfTag code={row.shelf} />
                     </td>
@@ -220,8 +227,13 @@ export default function CountSheetPage() {
                     <td className="px-3 py-3 text-right font-mono text-warning">
                       {row.writeOffQty > 0 ? row.writeOffQty : "—"}
                     </td>
-                    <td className="px-3 py-3 text-right font-mono font-semibold text-ink">
-                      {row.ending} {row.unit}
+                    <td className="px-3 py-3 text-right">
+                      <p className="font-mono font-semibold text-ink">
+                        {row.ending} {row.unit}
+                      </p>
+                      <p className="font-mono text-[11px] text-ink-faint">
+                        {formatCurrency(row.inQty * row.sellingPrice)}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge item={{ stock: row.ending, maxStock: row.maxStock }} />
