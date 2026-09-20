@@ -217,6 +217,10 @@ model Movement {
   qty            Int
   unitCost       Decimal          @default(0) @db.Decimal(10, 2)
   unitPrice      Decimal?         @db.Decimal(10, 2)
+  // SRP snapshot at dispense/sale time — independent of unitPrice (what was
+  // actually charged), so a later price change never rewrites history and a
+  // discount/free give-away can always be recomputed as listPrice - unitPrice.
+  listPrice      Decimal?         @db.Decimal(10, 2)
   orNumber       String?
   reference      String?
   // Set on WRITE_OFF (direct or via a bad-condition RETURN).

@@ -151,6 +151,8 @@ export interface Movement {
   issuedTo?: string;
   orNumber?: string;
   unitPrice?: number;
+  /** SRP snapshot at the time (DISPENSE/SALE only) — unitPrice below this is a discount/free give-away. */
+  listPrice?: number;
   reference?: string;
   writeOffReason?: WriteOffReason;
   note?: string;

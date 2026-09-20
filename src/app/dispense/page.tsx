@@ -21,6 +21,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
+import { formatCurrency } from "@/lib/format";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -45,6 +46,8 @@ export default function DispensePage() {
   // Left unset, the server auto-picks FEFO/FIFO (or oldest serials).
   const [batchSel, setBatchSel] = useState<Record<string, string>>({});
   const [serialSel, setSerialSel] = useState<Record<string, string[]>>({});
+  // Charged price per line — left unset, the SRP (item.sellingPrice) applies.
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>({});
   const [issuedTo, setIssuedTo] = useState("");
   const [purpose, setPurpose] = useState("");
   const [recipient, setRecipient] = useState<RecipientSelection | null>(null);
@@ -78,6 +81,12 @@ export default function DispensePage() {
 
   const totalQty = cartLines.reduce((s, l) => s + l.qty, 0);
 
+  const priceFor = (item: Item) => priceOverrides[item.id] ?? item.sellingPrice;
+  const setPrice = (id: string, price: number) => {
+    setPriceOverrides((p) => ({ ...p, [id]: Math.max(0, price) }));
+  };
+  const hasDiscount = cartLines.some(({ item }) => priceFor(item) < item.sellingPrice);
+
   const setQty = (id: string, qty: number, max: number) => {
     setCart((c) => {
       const next = { ...c };
@@ -96,6 +105,12 @@ export default function DispensePage() {
       setBatchSel((b) => {
         if (!(id in b)) return b;
         const next = { ...b };
+        delete next[id];
+        return next;
+      });
+      setPriceOverrides((p) => {
+        if (!(id in p)) return p;
+        const next = { ...p };
         delete next[id];
         return next;
       });
@@ -127,6 +142,14 @@ export default function DispensePage() {
       setError("Enter who this slip is issued to.");
       return;
     }
+    if (hasDiscount && !recipient?.recipientId) {
+      setError("Pick a recipient from the list before dispensing below SRP or for free.");
+      return;
+    }
+    if (hasDiscount && !purpose.trim()) {
+      setError("Add a purpose/reason before dispensing below SRP or for free.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -141,6 +164,7 @@ export default function DispensePage() {
             stockId: item.id,
             qty,
             issuedTo: issuedTo.trim(),
+            unitPrice: priceFor(item),
             unitIds: item.serialized && unitIds?.length ? unitIds : undefined,
             batchId: !item.serialized && batchId ? batchId : undefined,
             ...(recipient?.recipientId ? { recipientId: recipient.recipientId } : {}),
@@ -171,6 +195,7 @@ export default function DispensePage() {
       setCart({});
       setBatchSel({});
       setSerialSel({});
+      setPriceOverrides({});
       setIssuedTo("");
       setPurpose("");
       setRecipient(null);
@@ -202,6 +227,7 @@ export default function DispensePage() {
         setCart({});
         setBatchSel({});
         setSerialSel({});
+        setPriceOverrides({});
         setIssuedTo("");
         setPurpose("");
         setRecipient(null);
@@ -221,6 +247,8 @@ export default function DispensePage() {
         })
       }
       onToggleSerial={toggleSerial}
+      priceFor={priceFor}
+      onPrice={setPrice}
     />
   );
 
@@ -440,6 +468,8 @@ function SlipPanel({
   serialSel,
   onBatchSel,
   onToggleSerial,
+  priceFor,
+  onPrice,
 }: {
   lines: { item: Item; qty: number }[];
   issuedTo: string;
@@ -456,7 +486,11 @@ function SlipPanel({
   serialSel: Record<string, string[]>;
   onBatchSel: (id: string, batchId: string) => void;
   onToggleSerial: (item: Item, unitId: string) => void;
+  priceFor: (item: Item) => number;
+  onPrice: (id: string, price: number) => void;
 }) {
+  const totalAmount = lines.reduce((s, { item, qty }) => s + priceFor(item) * qty, 0);
+  const totalSrp = lines.reduce((s, { item, qty }) => s + item.sellingPrice * qty, 0);
   return (
     <div className="rounded-xl bg-surface shadow-sm ring-1 ring-black/5">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3.5">
@@ -500,9 +534,29 @@ function SlipPanel({
                 onBatchSel={(batchId) => onBatchSel(item.id, batchId)}
                 onToggleSerial={(unitId) => onToggleSerial(item, unitId)}
               />
+              <LinePrice
+                item={item}
+                qty={qty}
+                price={priceFor(item)}
+                onPrice={(p) => onPrice(item.id, p)}
+              />
             </li>
           ))}
         </ul>
+      )}
+
+      {lines.length > 0 && (
+        <div className="flex items-center justify-between border-t border-line px-4 py-3 text-sm">
+          <span className="text-ink-soft">Total</span>
+          <span className="font-mono font-semibold text-ink">
+            {formatCurrency(totalAmount)}
+            {totalAmount < totalSrp && (
+              <span className="ml-1.5 text-xs font-normal text-ink-faint line-through">
+                {formatCurrency(totalSrp)}
+              </span>
+            )}
+          </span>
+        </div>
       )}
 
       <div className="space-y-3 border-t border-line p-4">
@@ -547,6 +601,12 @@ function SlipPanel({
             placeholder="e.g. Church planting, Seminar, Office use…"
             maxLength={300}
           />
+          {totalAmount < totalSrp && (
+            <p className="mt-1.5 text-[11px] text-warning">
+              Required — this slip has an item below SRP or given free. Pick a recipient above
+              too; both are logged with the dispense.
+            </p>
+          )}
         </div>
         {error && (
           <p className="rounded-lg bg-danger-tint px-3 py-2 text-[13px] font-medium text-danger">
@@ -638,6 +698,53 @@ function LineSource({
         </option>
       ))}
     </select>
+  );
+}
+
+function LinePrice({
+  item,
+  qty,
+  price,
+  onPrice,
+}: {
+  item: Item;
+  qty: number;
+  price: number;
+  onPrice: (price: number) => void;
+}) {
+  const discounted = price < item.sellingPrice;
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <span className="text-[11px] text-ink-faint">Price</span>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-ink-faint">
+          ₱
+        </span>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={price}
+          onChange={(e) => onPrice(Number(e.target.value) || 0)}
+          aria-label={`Price for ${item.name}`}
+          className="w-24 rounded-md border border-line bg-bg py-1 pl-5 pr-1.5 text-[12px] font-medium text-ink focus:border-brand focus:outline-none"
+        />
+      </div>
+      <span className="text-[11px] text-ink-faint">/{item.unit}</span>
+      {discounted ? (
+        <span className="ml-auto shrink-0 rounded-full bg-warning-tint px-2 py-0.5 text-[10px] font-medium text-warning">
+          {price === 0 ? "Free" : `-${formatCurrency((item.sellingPrice - price) * qty)}`}
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onPrice(0)}
+          className="ml-auto rounded-full bg-line/60 px-2 py-0.5 text-[10px] font-medium text-ink-soft hover:bg-warning-tint hover:text-warning"
+        >
+          Free
+        </button>
+      )}
+    </div>
   );
 }
 

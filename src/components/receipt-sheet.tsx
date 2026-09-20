@@ -226,8 +226,19 @@ export function ReceiptSheet({
             <Row label="Total cost" value={formatCurrency(totalCost)} mono strong />
             {movement.unitPrice !== undefined && (
               <>
+                {movement.listPrice !== undefined && movement.listPrice > movement.unitPrice && (
+                  <Row label="SRP" value={formatCurrency(movement.listPrice)} mono />
+                )}
                 <Row label="Unit price" value={formatCurrency(movement.unitPrice)} mono />
                 <Row label="Total amount" value={formatCurrency(totalAmount!)} mono strong />
+                {movement.listPrice !== undefined && movement.listPrice > movement.unitPrice && (
+                  <Row
+                    label={movement.unitPrice === 0 ? "Given free" : "Discount"}
+                    value={formatCurrency((movement.listPrice - movement.unitPrice) * movement.qty)}
+                    mono
+                    strong
+                  />
+                )}
               </>
             )}
             {movement.orNumber && <Row label="OR number" value={movement.orNumber} mono />}

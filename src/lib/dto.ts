@@ -123,6 +123,9 @@ export function toMovementDto(m: MovementRow, shelf: string): MovementDto {
     ...(m.unitPrice !== null && m.unitPrice !== undefined
       ? { unitPrice: Number(m.unitPrice) }
       : {}),
+    ...(m.listPrice !== null && m.listPrice !== undefined
+      ? { listPrice: Number(m.listPrice) }
+      : {}),
     ...(m.reference ? { reference: m.reference } : {}),
     ...(m.writeOffReason ? { writeOffReason: m.writeOffReason } : {}),
     ...(m.note ? { note: m.note } : {}),

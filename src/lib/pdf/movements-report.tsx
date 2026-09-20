@@ -91,6 +91,13 @@ export function MovementsReportDocument({ from, to, movements, generatedBy }: Mo
     .reduce((s, m) => s + m.qty * (m.unitPrice ?? 0), 0);
   const received = movements.filter((m) => m.type === "RECEIVE");
   const receivedCost = received.reduce((s, m) => s + m.qty * m.unitCost, 0);
+  const totalDiscounts = dispensed.reduce(
+    (s, m) =>
+      s + (m.listPrice !== undefined && m.unitPrice !== undefined
+        ? Math.max(0, m.listPrice - m.unitPrice) * m.qty
+        : 0),
+    0,
+  );
 
   return (
     <Document>
@@ -112,6 +119,7 @@ export function MovementsReportDocument({ from, to, movements, generatedBy }: Mo
           <SummaryCard label="Dispensed / sold (units)" value={String(totalQty)} />
           <SummaryCard label="Dispense cost" value={money(totalCost)} />
           <SummaryCard label="Sales revenue" value={money(totalRevenue)} />
+          <SummaryCard label="Discounts / free given" value={money(totalDiscounts)} />
           <SummaryCard label="Received (units / cost)" value={`${received.reduce((s, m) => s + m.qty, 0)} / ${money(receivedCost)}`} />
         </View>
 
@@ -133,6 +141,11 @@ export function MovementsReportDocument({ from, to, movements, generatedBy }: Mo
               </Text>
               <Text style={[styles.td, styles.colType]}>
                 {m.cancelledAt ? `${m.type} (CANCELLED)` : m.type}
+                {m.listPrice !== undefined && m.unitPrice !== undefined && m.unitPrice < m.listPrice
+                  ? m.unitPrice === 0
+                    ? " · FREE"
+                    : " · DISC."
+                  : ""}
               </Text>
               <Text style={[styles.td, styles.colItem]}>{m.itemName}</Text>
               <Text style={[styles.td, styles.colQty]}>{m.qty}</Text>

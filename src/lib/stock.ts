@@ -257,6 +257,25 @@ export async function applyStockAction(input: StockActionInput) {
     const signedQty = inbound ? qty : -qty;
     await tx.itemStock.update({ where: { id: stock.id }, data: { quantity: { increment: signedQty } } });
 
+    // SRP snapshot + the price actually charged. Below-SRP (including free)
+    // requires a known recipient and a reason on file — the accountability
+    // trail for who authorized the discount and why.
+    const isSale = input.type === "DISPENSE" || input.type === "SALE";
+    const listPrice = isSale ? new Prisma.Decimal(stock.item.sellingPrice) : undefined;
+    const unitPrice = isSale
+      ? (input.unitPrice !== undefined ? new Prisma.Decimal(input.unitPrice) : listPrice!)
+      : input.unitPrice !== undefined
+        ? new Prisma.Decimal(input.unitPrice)
+        : undefined;
+    if (isSale && listPrice && unitPrice!.lt(listPrice)) {
+      if (!input.recipientId) {
+        throw new ApiError(422, "Select a recipient before dispensing below SRP or for free");
+      }
+      if (!input.purpose?.trim() && !input.note?.trim()) {
+        throw new ApiError(422, "A reason is required when dispensing below SRP or for free");
+      }
+    }
+
     return tx.movement.create({
       data: {
         itemId: stock.itemId,
@@ -268,7 +287,8 @@ export async function applyStockAction(input: StockActionInput) {
         issuedToName: input.issuedToName,
         qty: signedQty,
         unitCost,
-        unitPrice: input.unitPrice !== undefined ? new Prisma.Decimal(input.unitPrice) : undefined,
+        unitPrice,
+        listPrice,
         orNumber: input.orNumber,
         reference: input.reference,
         writeOffReason: input.writeOffReason,
