@@ -15,12 +15,83 @@ import { BookingDetail } from "@/components/guesthouse/booking-detail";
 import { BookingSheet } from "@/components/guesthouse/booking-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
 import { BOOKING_STATUS_LABELS, type Booking, type RoomDto, type TodayBoard } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+function formatDate(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function RoomDetailSheet({ room, onClose }: { room: RoomDto | null; onClose: () => void }) {
+  return (
+    <Sheet open={!!room} onClose={onClose} title={room?.name ?? "Room"}>
+      {room && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-ink-soft">Status</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-medium",
+                ROOM_TONE[room.status],
+              )}
+            >
+              {room.status === "AVAILABLE"
+                ? "Free"
+                : room.status === "OCCUPIED"
+                  ? "Occupied"
+                  : "Out of service"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-ink-soft">Rate</span>
+            <span className="text-sm font-medium text-ink">{formatCurrency(room.rate)}/night</span>
+          </div>
+          {room.capacity !== undefined && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-ink-soft">Capacity</span>
+              <span className="text-sm font-medium text-ink">{room.capacity}</span>
+            </div>
+          )}
+          {room.guestName && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-ink-soft">Guest</span>
+              <span className="text-sm font-medium text-ink">
+                {room.guestName}
+                {room.until ? ` · until ${formatDate(room.until)}` : ""}
+              </span>
+            </div>
+          )}
+          {room.blocks && room.blocks.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-sm text-ink-soft">Blocked</p>
+              <ul className="space-y-1">
+                {room.blocks.map((b) => (
+                  <li key={b.id} className="text-xs text-warning">
+                    {formatDate(b.from)} – {formatDate(b.to)} · {b.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="mb-1.5 text-sm text-ink-soft">Notes</p>
+            <p className="whitespace-pre-wrap rounded-lg bg-line/30 p-3 text-sm text-ink">
+              {room.notes || "No notes for this room."}
+            </p>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
 
 const ROOM_TONE = {
   AVAILABLE: "bg-success-tint text-success",
@@ -118,6 +189,7 @@ export default function GuesthousePage() {
   // slate instead of carrying over the previous session's form state.
   const [sheetSession, setSheetSession] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [viewRoom, setViewRoom] = useState<RoomDto | null>(null);
 
   async function quickAction(id: string, body: unknown, title: string) {
     const res = await fetch(`/api/guesthouse/bookings/${id}`, {
@@ -287,24 +359,26 @@ export default function GuesthousePage() {
                   key={room.id}
                   className="rounded-xl bg-surface p-3 shadow-sm ring-1 ring-black/5"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-ink">{room.name}</span>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                        ROOM_TONE[room.status],
-                      )}
-                    >
-                      {room.status === "AVAILABLE"
-                        ? "Free"
-                        : room.status === "OCCUPIED"
-                          ? "Occupied"
-                          : "Out of service"}
-                    </span>
-                  </div>
-                  <p className="mt-1 truncate text-xs text-ink-soft">
-                    {room.guestName ?? `${formatCurrency(room.rate)}/night`}
-                  </p>
+                  <button onClick={() => setViewRoom(room)} className="w-full text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-ink">{room.name}</span>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          ROOM_TONE[room.status],
+                        )}
+                      >
+                        {room.status === "AVAILABLE"
+                          ? "Free"
+                          : room.status === "OCCUPIED"
+                            ? "Occupied"
+                            : "Out of service"}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-ink-soft">
+                      {room.guestName ?? `${formatCurrency(room.rate)}/night`}
+                    </p>
+                  </button>
                   {room.needsCleaning && (
                     <button
                       onClick={() => markClean(room)}
@@ -346,6 +420,7 @@ export default function GuesthousePage() {
         onClose={() => setOpenId(null)}
         onChanged={refetch}
       />
+      <RoomDetailSheet room={viewRoom} onClose={() => setViewRoom(null)} />
     </div>
   );
 }

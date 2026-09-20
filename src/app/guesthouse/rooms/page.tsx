@@ -3,6 +3,7 @@
 import { Lock, Plus, Unlock, Wrench } from "lucide-react";
 import { useState } from "react";
 import { GuesthouseTabs } from "@/components/guesthouse/guesthouse-tabs";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
@@ -89,6 +90,121 @@ function NewRoomSheet({
   );
 }
 
+function EditRoomSheet({
+  room,
+  onClose,
+  onSaved,
+  onDeleted,
+}: {
+  room: RoomDto | null;
+  onClose: () => void;
+  onSaved: () => void;
+  onDeleted: () => void;
+}) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [rate, setRate] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  if (room && loadedFor !== room.id) {
+    setName(room.name);
+    setRate(String(room.rate));
+    setCapacity(room.capacity ? String(room.capacity) : "");
+    setNotes(room.notes ?? "");
+    setLoadedFor(room.id);
+    setError(null);
+  }
+
+  async function submit() {
+    if (!room) return;
+    if (!name.trim()) return setError("Room name is required");
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/guesthouse/rooms/${room.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          rate: Number(rate || 0),
+          capacity: capacity ? Number(capacity) : null,
+          notes: notes.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not update the room");
+      toast({ kind: "success", title: "Room updated" });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update the room");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!room) return;
+    try {
+      const res = await fetch(`/api/guesthouse/rooms/${room.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not delete the room");
+      toast({
+        kind: "success",
+        title: json.deactivated ? "Room deactivated" : "Room deleted",
+      });
+      onDeleted();
+      onClose();
+    } catch (e) {
+      toast({
+        kind: "error",
+        title: "Delete failed",
+        detail: e instanceof Error ? e.message : undefined,
+      });
+    }
+  }
+
+  return (
+    <Sheet open={!!room} onClose={onClose} title={room ? `Edit ${room.name}` : "Edit room"}>
+      <div className="space-y-3">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Room name" autoFocus />
+        <Input
+          type="number"
+          min={0}
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+          placeholder="Nightly rate"
+        />
+        <Input
+          type="number"
+          min={1}
+          value={capacity}
+          onChange={(e) => setCapacity(e.target.value)}
+          placeholder="Capacity (optional)"
+        />
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          placeholder="Notes (optional)"
+          className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25"
+        />
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <div className="flex items-center gap-2">
+          <Button className="flex-1" onClick={submit} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+          <ConfirmDeleteButton label={room?.name ?? "room"} onConfirm={remove} />
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 function BlockSheet({
   room,
   onClose,
@@ -164,6 +280,7 @@ export default function RoomsAdminPage() {
 
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const [blockRoom, setBlockRoom] = useState<RoomDto | null>(null);
+  const [editRoom, setEditRoom] = useState<RoomDto | null>(null);
   const [lockDate, setLockDate] = useState("");
 
   async function saveRoom(room: RoomDto, patch: Partial<{ rate: number; outOfService: boolean }>) {
@@ -205,12 +322,15 @@ export default function RoomsAdminPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {rooms?.map((room) => (
           <div key={room.id} className="rounded-xl bg-surface p-4 shadow-sm ring-1 ring-black/5">
-            <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={() => setEditRoom(room)}
+              className="flex w-full items-center justify-between gap-2 text-left"
+            >
               <span className="font-semibold text-ink">{room.name}</span>
               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", ROOM_TONE[room.status])}>
                 {room.status === "AVAILABLE" ? "Free" : room.status === "OCCUPIED" ? "Occupied" : "Out of service"}
               </span>
-            </div>
+            </button>
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-ink-soft">Rate</span>
               <input
@@ -277,6 +397,12 @@ export default function RoomsAdminPage() {
 
       <NewRoomSheet open={newRoomOpen} onClose={() => setNewRoomOpen(false)} onSaved={refetch} />
       <BlockSheet room={blockRoom} onClose={() => setBlockRoom(null)} onSaved={refetch} />
+      <EditRoomSheet
+        room={editRoom}
+        onClose={() => setEditRoom(null)}
+        onSaved={refetch}
+        onDeleted={refetch}
+      />
     </div>
   );
 }
