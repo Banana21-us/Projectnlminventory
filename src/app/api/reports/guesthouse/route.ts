@@ -23,9 +23,11 @@ function ymd(d: Date): string {
  * comes from the movement ledger — the two together give net contribution,
  * which is the number a standalone booking system could never produce.
  *
- * Guesthouse supply cost counts a dispense if *either* signal says
- * guesthouse: `purpose = GUESTHOUSE` or the recipient is a GUESTHOUSE
- * recipient. One OR'd query, so nothing is double-counted.
+ * Guesthouse supply cost counts a dispense if *any* signal says guesthouse:
+ * `purpose = GUESTHOUSE`, the recipient is a GUESTHOUSE-type recipient, or
+ * the recipient is the "Guesthouse" Department (staff dispense through that
+ * Department to get the "Availed by" employee picker, which only shows on
+ * the Department tab). One OR'd query, so nothing is double-counted.
  */
 export const GET = api(async (request) => {
   await requireCan("guesthouse.accounting");
@@ -54,7 +56,16 @@ export const GET = api(async (request) => {
           type: "DISPENSE",
           cancelledAt: null,
           createdAt: { gte: windowStart, lt: windowEnd },
-          OR: [{ purpose: "GUESTHOUSE" }, { recipient: { type: "GUESTHOUSE" } }],
+          OR: [
+            { purpose: "GUESTHOUSE" },
+            { recipient: { type: "GUESTHOUSE" } },
+            {
+              recipient: {
+                type: "DEPARTMENT",
+                name: { equals: "Guesthouse", mode: "insensitive" },
+              },
+            },
+          ],
         },
         select: { qty: true, unitCost: true, createdAt: true },
       }),
