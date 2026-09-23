@@ -758,9 +758,7 @@ export function BookingDetail({
                   <LogIn className="h-4 w-4" /> Check in
                 </Button>
               )}
-              {/* Check-out is ADMIN-only (guesthouse.adjust) — front desk
-                  checks guests in but hands closing out a stay to an ADMIN. */}
-              {isAdmin && booking.status === "CHECKED_IN" && (
+              {booking.status === "CHECKED_IN" && (
                 <Button
                   className="col-span-2"
                   onClick={() => {

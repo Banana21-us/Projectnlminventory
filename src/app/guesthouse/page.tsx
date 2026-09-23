@@ -328,24 +328,21 @@ export default function GuesthousePage() {
                 key={b.id}
                 booking={b}
                 onOpen={() => setOpenId(b.id)}
-                // Check-out is ADMIN-only (guesthouse.adjust) — front desk
-                // can see who's due out but hands the actual check-out (and
-                // any balance settlement) to an ADMIN.
-                primary={
-                  isAdmin
-                    ? {
-                        label:
-                          b.totals.balance > 0 && !b.complimentary
-                            ? "Settle & check out"
-                            : "Check out",
-                        tone: b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
-                        onClick: () =>
-                          b.totals.balance > 0 && !b.complimentary
-                            ? setOpenId(b.id)
-                            : quickAction(b.id, { action: "checkOut" }, "Checked out"),
-                      }
-                    : undefined
-                }
+                primary={{
+                  // Unpaid departures route through the folio for an ADMIN
+                  // to settle first — front desk never touches cash, so
+                  // they just check out and the balance stays outstanding
+                  // until an ADMIN records the payment separately.
+                  label:
+                    isAdmin && b.totals.balance > 0 && !b.complimentary
+                      ? "Settle & check out"
+                      : "Check out",
+                  tone: isAdmin && b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
+                  onClick: () =>
+                    isAdmin && b.totals.balance > 0 && !b.complimentary
+                      ? setOpenId(b.id)
+                      : quickAction(b.id, { action: "checkOut" }, "Checked out"),
+                }}
               />
             ))}
           </Section>
