@@ -424,9 +424,20 @@ function ItemCard({
               >
                 <Minus className="h-4 w-4" />
               </button>
-              <span className="w-8 text-center font-mono text-sm font-semibold text-ink">
-                {qty}
-              </span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={item.stock}
+                value={qty}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  onQty(Number.isNaN(n) ? 0 : n);
+                }}
+                onFocus={(e) => e.target.select()}
+                aria-label={`Quantity for ${item.name}`}
+                className="w-12 rounded-md bg-transparent text-center font-mono text-sm font-semibold text-ink [appearance:textfield] focus:outline-none focus:ring-2 focus:ring-brand/40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
               <button
                 onClick={() => onQty(qty + 1)}
                 disabled={qty >= item.stock}
