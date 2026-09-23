@@ -9,8 +9,11 @@ import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
-import type { RecipientDto, RoomAvailabilityDto } from "@/lib/types";
+import { PAYMENT_METHOD_LABELS, type RecipientDto, type RoomAvailabilityDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+type AdvanceMethod = "CASH" | "GCASH" | "BANK_TRANSFER" | "CHECK";
+const ADVANCE_METHODS: AdvanceMethod[] = ["CASH", "GCASH", "BANK_TRANSFER", "CHECK"];
 
 /** "2026-09-18" for an offset from today, in the browser's local calendar. */
 function dayString(offset = 0): string {
@@ -108,6 +111,8 @@ export function BookingSheet({
   const [complimentary, setComplimentary] = useState(false);
   const [compReason, setCompReason] = useState("");
   const [rateOverride, setRateOverride] = useState("");
+  const [advanceAmount, setAdvanceAmount] = useState("");
+  const [advanceMethod, setAdvanceMethod] = useState<AdvanceMethod>("CASH");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,6 +168,7 @@ export function BookingSheet({
     if (!validRange) return setError("Check-out must be at least one night after check-in");
     if (!roomIds.length) return setError("Pick at least one room");
     if (complimentary && !compReason.trim()) return setError("A complimentary stay needs a reason");
+    if (Number(advanceAmount) > total) return setError("Advance payment cannot exceed the total");
 
     setSaving(true);
     try {
@@ -197,6 +203,9 @@ export function BookingSheet({
           ...(!walkIn && tentative && holdUntil ? { holdUntil } : {}),
           ...(complimentary ? { complimentary: true, compReason: compReason.trim() } : {}),
           ...(isAdmin && rateOverride !== "" ? { rateOverride: Number(rateOverride) } : {}),
+          ...(!complimentary && Number(advanceAmount) > 0
+            ? { advancePayment: { amount: Number(advanceAmount), method: advanceMethod } }
+            : {}),
         }),
       });
       const json = await res.json();
@@ -450,6 +459,50 @@ export function BookingSheet({
             {complimentary ? formatCurrency(0) : formatCurrency(total)}
           </span>
         </div>
+
+        {!complimentary && total > 0 && (
+          <div className="space-y-2 rounded-lg bg-bg px-3 py-2.5">
+            <label className="text-xs font-medium text-ink-soft">
+              Advance payment / reservation fee (optional)
+            </label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={total}
+                step="0.01"
+                value={advanceAmount}
+                onChange={(e) => setAdvanceAmount(e.target.value)}
+                placeholder="0"
+              />
+              <Button variant="outline" size="sm" onClick={() => setAdvanceAmount(String(total))}>
+                Full
+              </Button>
+            </div>
+            {Number(advanceAmount) > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {ADVANCE_METHODS.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAdvanceMethod(m)}
+                    className={cn(
+                      "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                      advanceMethod === m ? "bg-brand text-white" : "bg-line/50 text-ink-soft",
+                    )}
+                  >
+                    {PAYMENT_METHOD_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {roomIds.length > 1 && Number(advanceAmount) > 0 && (
+              <p className="text-[11px] text-ink-faint">
+                Applied to the first room in this group only.
+              </p>
+            )}
+          </div>
+        )}
 
         {error && (
           <p className="flex items-start gap-2 rounded-lg bg-danger-tint px-3 py-2 text-sm text-danger">

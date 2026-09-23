@@ -279,6 +279,12 @@ export const bookingCreateSchema = z
     allowPastDates: z.boolean().optional(),
     checkInNow: z.boolean().optional(),
     rateOverride: z.number().min(0).optional(),
+    advancePayment: z
+      .object({
+        amount: z.number().min(0.01, "Amount must be greater than zero"),
+        method: z.enum(["CASH", "BANK_TRANSFER", "GCASH", "CHECK"]),
+      })
+      .optional(),
   })
   .refine((d) => d.checkOut > d.checkIn, {
     message: "Check-out must be after check-in",
@@ -287,6 +293,10 @@ export const bookingCreateSchema = z
   .refine((d) => !d.complimentary || !!d.compReason, {
     message: "A complimentary stay needs a reason",
     path: ["compReason"],
+  })
+  .refine((d) => !d.complimentary || !d.advancePayment, {
+    message: "A complimentary stay bills nothing — there is no advance to take",
+    path: ["advancePayment"],
   });
 
 export const bookingActionSchema = z.discriminatedUnion("action", [

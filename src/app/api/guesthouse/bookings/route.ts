@@ -56,9 +56,13 @@ export const GET = api(async (request) => {
 /**
  * POST /api/guesthouse/bookings — one room, or several in a group booking.
  *
- * Front desk can book, check in a walk-in, and place a tentative hold. The
- * options that move money (complimentary, rate override) or rewrite history
- * (backdating) are ADMIN-only.
+ * Front desk can book, check in a walk-in, place a tentative hold, and take
+ * an advance payment/reservation fee at the moment of booking — that's the
+ * one cash-handling exception to guesthouse.adjust being ADMIN-only,
+ * recorded as a normal Payment with recordedById set to whoever's logged
+ * in. Settling or refunding an existing booking afterward still isn't.
+ * The options that move money beyond that (complimentary, rate override) or
+ * rewrite history (backdating) are ADMIN-only.
  */
 export const POST = api(async (request) => {
   const user = await requireCan("guesthouse.manage");
@@ -90,6 +94,7 @@ export const POST = api(async (request) => {
       allowPastDates: data.allowPastDates,
       checkInNow: data.checkInNow,
       rateOverride: data.rateOverride ?? null,
+      advancePayment: data.advancePayment ?? null,
     },
     user.id,
   );

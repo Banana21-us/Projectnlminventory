@@ -90,6 +90,30 @@ export interface RecipientDto {
   active: boolean;
 }
 
+/** A GUESTHOUSE recipient with their stay history rolled up — powers the
+ *  Guests tab and its detail sheet. */
+export interface GuestDto extends RecipientDto {
+  creditBalance: number;
+  visits: number;
+  lastStay?: string;
+}
+
+export interface GuestCreditEntry {
+  id: string;
+  amount: number;
+  reason: string | null;
+  at: string;
+  sourceBookingId?: string;
+  usedBookingId?: string;
+}
+
+export interface GuestDetail {
+  guest: RecipientDto;
+  creditBalance: number;
+  bookings: Booking[];
+  credits: GuestCreditEntry[];
+}
+
 export interface DistrictDto {
   id: string;
   name: string;

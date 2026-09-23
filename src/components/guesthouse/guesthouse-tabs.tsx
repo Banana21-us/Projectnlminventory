@@ -9,11 +9,12 @@ const TABS = [
   { href: "/guesthouse", label: "Today", exact: true },
   { href: "/guesthouse/bookings", label: "Bookings" },
   { href: "/guesthouse/rooms", label: "Rooms", permission: "guesthouse.rooms" as const },
+  { href: "/guesthouse/guests", label: "Guests" },
   { href: "/guesthouse/accounting", label: "Accounting", permission: "guesthouse.accounting" as const },
 ];
 
 /** Section tabs for the guesthouse module — the main nav stays flat, so
- *  this is where Today/Bookings/Rooms/Accounting live. Rooms and
+ *  this is where Today/Bookings/Rooms/Guests/Accounting live. Rooms and
  *  Accounting only render for roles that can see them. */
 export function GuesthouseTabs() {
   const pathname = usePathname();

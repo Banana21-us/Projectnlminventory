@@ -347,6 +347,11 @@ export interface CreateBookingInput {
   /** Create, confirm and check in at once (walk-in). */
   checkInNow?: boolean;
   rateOverride?: number | null;
+  /** Cash/GCash/etc. taken on the spot — a reservation fee or deposit,
+   *  recorded as a normal Payment so it's deducted from what's owed and
+   *  shows in this guest's history. Group bookings apply it to the first
+   *  room only; splitting one fee across several rooms isn't supported. */
+  advancePayment?: { amount: number; method: PaymentMethod } | null;
 }
 
 export async function createBooking(input: CreateBookingInput, actorId: string) {
@@ -371,7 +376,7 @@ export async function createBooking(input: CreateBookingInput, actorId: string) 
 
   return prisma.$transaction(async (tx) => {
     const created = [];
-    for (const roomId of input.roomIds) {
+    for (const [i, roomId] of input.roomIds.entries()) {
       await assertRoomFree(tx, roomId, checkIn, checkOut);
       const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
 
@@ -420,6 +425,25 @@ export async function createBooking(input: CreateBookingInput, actorId: string) 
       if (input.complimentary) {
         await logEvent(tx, booking.id, actorId, "COMPED", {
           detail: input.compReason ?? "Complimentary stay",
+        });
+      }
+      if (i === 0 && input.advancePayment) {
+        const amount = Math.round(input.advancePayment.amount * 100) / 100;
+        const charge = money(nights * (input.rateOverride ?? Number(room.rate)));
+        if (amount > charge) {
+          throw new ApiError(422, `That is more than the ₱${charge.toFixed(2)} charge for this stay`);
+        }
+        await tx.payment.create({
+          data: {
+            bookingId: booking.id,
+            amount,
+            method: input.advancePayment.method,
+            note: "Advance payment / reservation fee",
+            recordedById: actorId,
+          },
+        });
+        await logEvent(tx, booking.id, actorId, "PAYMENT_RECORDED", {
+          detail: `₱${amount.toFixed(2)} · ${input.advancePayment.method.replace(/_/g, " ").toLowerCase()} (advance)`,
         });
       }
       created.push(booking);
@@ -742,9 +766,10 @@ export interface RecordPaymentInput {
 }
 
 /**
- * Settlement. Payment happens at (or after) checkout — never in advance,
- * since the guesthouse takes no deposits. A negative amount is a refund and
- * is gated on guesthouse.adjust by the route.
+ * Settlement of an existing booking — at or after checkout. (An advance
+ * payment/reservation fee taken at booking time goes through
+ * `createBooking` instead, since front desk can take that but not this.) A
+ * negative amount is a refund and is gated on guesthouse.adjust by the route.
  */
 export async function recordPayment(id: string, actorId: string, input: RecordPaymentInput) {
   return prisma.$transaction(async (tx) => {

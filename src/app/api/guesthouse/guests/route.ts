@@ -2,17 +2,22 @@ import { api, requireCan, validate } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { toRecipientDto } from "@/lib/dto";
 import { guestCreateSchema } from "@/lib/validators";
+import type { GuestDto } from "@/lib/types";
 
 /**
- * GET /api/guesthouse/guests?search=
+ * GET /api/guesthouse/guests?search=&list=1
  *
- * Name-suggestion source for the booking sheet's guest field — searches only
- * GUESTHOUSE-type recipients, kept separate from /api/recipients so front
- * desk (guesthouse.view) never needs access to pastor/department data.
+ * With `search`, a lean name-suggestion source for the booking sheet's guest
+ * field (kept separate from /api/recipients so front desk, guesthouse.view,
+ * never needs access to pastor/department data). With `list=1`, the full
+ * roster for the Guests tab, each with their visit count, last stay and
+ * current credit balance.
  */
 export const GET = api(async (request) => {
   await requireCan("guesthouse.view");
-  const search = new URL(request.url).searchParams.get("search")?.trim();
+  const url = new URL(request.url);
+  const search = url.searchParams.get("search")?.trim();
+  const list = url.searchParams.get("list") === "1";
 
   const guests = await prisma.recipient.findMany({
     where: {
@@ -22,9 +27,34 @@ export const GET = api(async (request) => {
     },
     include: { district: true },
     orderBy: { name: "asc" },
-    take: 8,
+    ...(list ? {} : { take: 8 }),
   });
-  return Response.json(guests.map(toRecipientDto));
+  if (!list) return Response.json(guests.map(toRecipientDto));
+
+  const ids = guests.map((g) => g.id);
+  const [creditAgg, bookingAgg] = await Promise.all([
+    prisma.guestCredit.groupBy({ by: ["recipientId"], where: { recipientId: { in: ids } }, _sum: { amount: true } }),
+    prisma.booking.groupBy({
+      by: ["recipientId"],
+      where: { recipientId: { in: ids }, status: { notIn: ["CANCELLED", "NO_SHOW"] } },
+      _count: { _all: true },
+      _max: { checkOut: true },
+    }),
+  ]);
+  const creditByGuest = new Map(creditAgg.map((c) => [c.recipientId, Number(c._sum.amount ?? 0)]));
+  const bookingByGuest = new Map(
+    bookingAgg.map((b) => [b.recipientId, { visits: b._count._all, lastStay: b._max.checkOut }]),
+  );
+
+  const dtos: GuestDto[] = guests.map((g) => ({
+    ...toRecipientDto(g),
+    creditBalance: creditByGuest.get(g.id) ?? 0,
+    visits: bookingByGuest.get(g.id)?.visits ?? 0,
+    ...(bookingByGuest.get(g.id)?.lastStay
+      ? { lastStay: bookingByGuest.get(g.id)!.lastStay!.toISOString().slice(0, 10) }
+      : {}),
+  }));
+  return Response.json(dtos);
 });
 
 /**
