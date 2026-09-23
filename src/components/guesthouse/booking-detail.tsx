@@ -125,9 +125,10 @@ export function BookingDetail({
   onChanged: () => void;
 }) {
   const toast = useToast();
-  const { can } = useCurrentUser();
+  const { can, role } = useCurrentUser();
   const isAdmin = can("guesthouse.adjust");
   const canCharge = can("guesthouse.charges");
+  const canHeadcount = role !== "GUESTHOUSE";
 
   const { data: booking, loading, refetch } = useFetch<Booking>(
     open && bookingId ? `/api/guesthouse/bookings/${bookingId}` : "",
@@ -772,7 +773,7 @@ export function BookingDetail({
                   <LogOut className="h-4 w-4" /> Check out
                 </Button>
               )}
-              {(booking.status === "CHECKED_IN" || booking.status === "CHECKED_OUT") && (
+              {canHeadcount && booking.status === "CHECKED_IN" && (
                 <Button variant="outline" onClick={() => openPanel("occupants", booking)}>
                   <Users className="h-4 w-4" /> Headcount
                 </Button>
@@ -808,7 +809,10 @@ export function BookingDetail({
                   </Button>
                 </>
               )}
-              {canCharge && !booking.complimentary && booking.status !== "CANCELLED" && (
+              {canCharge &&
+                !booking.complimentary &&
+                booking.status !== "CANCELLED" &&
+                booking.status !== "CHECKED_OUT" && (
                 <>
                   <Button
                     variant="outline"
