@@ -331,6 +331,7 @@ export interface RoomStayDto {
   roomName: string;
   from: string;
   to: string;
+  rate: number;
   reason?: string;
 }
 
@@ -349,6 +350,8 @@ export interface Booking {
   billedNights: number; // what money is computed from
   nightlyRate: number;
   occupants: number;
+  /** Headcount actually observed at arrival, when it differs from `occupants`. */
+  actualOccupants?: number;
   status: BookingStatus;
   holdUntil?: string;
   complimentary: boolean;
@@ -357,6 +360,8 @@ export interface Booking {
   notionalValue?: number;
   cancelReason?: string;
   note?: string;
+  /** Room names in stay order, present only when the guest moved rooms. */
+  stayRooms?: string[];
   totals: FolioTotals;
   createdBy: string;
   createdAt: string;

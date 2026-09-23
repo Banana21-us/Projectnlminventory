@@ -291,7 +291,10 @@ export const bookingCreateSchema = z
 
 export const bookingActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("confirm") }),
-  z.object({ action: z.literal("checkIn") }),
+  z.object({
+    action: z.literal("checkIn"),
+    actualOccupants: z.number().int().min(1).max(50).optional(),
+  }),
   z.object({
     action: z.literal("checkOut"),
     billedNights: z.number().int().min(1).optional(),
@@ -315,6 +318,10 @@ export const bookingActionSchema = z.discriminatedUnion("action", [
     action: z.literal("adjustNights"),
     billedNights: z.number().int().min(1),
     reason: z.string().trim().min(1, "A reason is required").max(200),
+  }),
+  z.object({
+    action: z.literal("setOccupants"),
+    actualOccupants: z.number().int().min(1).max(50),
   }),
 ]);
 

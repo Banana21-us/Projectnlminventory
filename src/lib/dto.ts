@@ -156,6 +156,7 @@ type BookingRow = Prisma.BookingGetPayload<{ include: typeof BOOKING_INCLUDE }>;
 
 export function toBookingDto(row: BookingRow, opts: { detail?: boolean } = {}): BookingDto {
   const totals = folioTotals(row);
+  const stayRooms = row.stays.map((s) => s.room.name);
   return {
     id: row.id,
     roomId: row.roomId,
@@ -171,6 +172,7 @@ export function toBookingDto(row: BookingRow, opts: { detail?: boolean } = {}): 
     billedNights: row.billedNights,
     nightlyRate: Number(row.nightlyRate),
     occupants: row.occupants,
+    ...(row.actualOccupants ? { actualOccupants: row.actualOccupants } : {}),
     status: row.status,
     ...(row.holdUntil ? { holdUntil: toDateString(row.holdUntil) } : {}),
     complimentary: row.complimentary,
@@ -178,6 +180,7 @@ export function toBookingDto(row: BookingRow, opts: { detail?: boolean } = {}): 
     ...(row.complimentary ? { notionalValue: notionalValue(row) } : {}),
     ...(row.cancelReason ? { cancelReason: row.cancelReason } : {}),
     ...(row.note ? { note: row.note } : {}),
+    ...(stayRooms.length > 1 ? { stayRooms } : {}),
     totals,
     createdBy: row.createdBy.name,
     createdAt: row.createdAt.toISOString(),
@@ -214,6 +217,7 @@ export function toBookingDto(row: BookingRow, opts: { detail?: boolean } = {}): 
             roomName: s.room.name,
             from: toDateString(s.fromDate),
             to: toDateString(s.toDate),
+            rate: Number(s.rate),
             ...(s.reason ? { reason: s.reason } : {}),
           })),
         }

@@ -12,6 +12,7 @@ import {
   LogOut,
   Ban,
   UserX,
+  Users,
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
@@ -23,6 +24,7 @@ import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
+import { bookingNotes, previewCharge } from "@/lib/booking-ui";
 import {
   BOOKING_STATUS_LABELS,
   PAYMENT_METHOD_LABELS,
@@ -59,7 +61,8 @@ type Mode =
   | "extend"
   | "move"
   | "adjustNights"
-  | "refund";
+  | "refund"
+  | "occupants";
 
 function formatDate(day: string): string {
   return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-PH", {
@@ -142,6 +145,7 @@ export function BookingDetail({
   const [newCheckOut, setNewCheckOut] = useState("");
   const [targetRoom, setTargetRoom] = useState("");
   const [billedNights, setBilledNights] = useState("");
+  const [occupantsInput, setOccupantsInput] = useState("");
 
   const { data: payers } = useFetch<{ id: string; name: string }[]>(
     mode === "settle" && method === "CHARGE_TO_DEPARTMENT" ? "/api/guesthouse/payers" : "",
@@ -164,6 +168,7 @@ export function BookingDetail({
     setNewCheckOut(booking.checkOut);
     setTargetRoom("");
     setBilledNights(String(booking.billedNights));
+    setOccupantsInput(String(booking.actualOccupants ?? booking.occupants));
     setMode(next);
   }
 
@@ -220,6 +225,11 @@ export function BookingDetail({
               {booking.contact && ` · ${booking.contact}`}
               {booking.groupName && ` · ${booking.groupName}`}
             </p>
+            {bookingNotes(booking).length > 0 && (
+              <p className="mt-1 text-xs font-medium text-brand-dark">
+                {bookingNotes(booking).join(" · ")}
+              </p>
+            )}
             {booking.complimentary && (
               <p className="mt-2 flex items-center gap-2 rounded-lg bg-success-tint px-3 py-2 text-sm text-success">
                 <Gift className="h-4 w-4" />
@@ -240,10 +250,25 @@ export function BookingDetail({
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                 Folio
               </h4>
-              <Row
-                label={`${booking.roomName} × ${booking.billedNights} night${booking.billedNights > 1 ? "s" : ""} @ ${formatCurrency(booking.nightlyRate)}`}
-                value={formatCurrency(booking.totals.charge)}
-              />
+              {booking.stays && booking.stays.length > 1 ? (
+                booking.stays.map((s, i) => {
+                  const nights = Math.round(
+                    (Date.parse(`${s.to}T00:00:00Z`) - Date.parse(`${s.from}T00:00:00Z`)) / 86_400_000,
+                  );
+                  return (
+                    <Row
+                      key={i}
+                      label={`${s.roomName} × ${nights} night${nights > 1 ? "s" : ""} @ ${formatCurrency(s.rate)}`}
+                      value={formatCurrency(nights * s.rate)}
+                    />
+                  );
+                })
+              ) : (
+                <Row
+                  label={`${booking.roomName} × ${booking.billedNights} night${booking.billedNights > 1 ? "s" : ""} @ ${formatCurrency(booking.nightlyRate)}`}
+                  value={formatCurrency(booking.totals.charge)}
+                />
+              )}
               {booking.adjustments
                 ?.filter((a) => a.kind === "DISCOUNT")
                 .map((a) => (
@@ -293,6 +318,44 @@ export function BookingDetail({
           )}
 
           {/* ── Inline action panels ── */}
+          {mode === "occupants" && (
+            <section className="space-y-3 rounded-xl border border-brand/40 bg-surface p-3.5">
+              <h4 className="text-sm font-semibold text-ink">Headcount</h4>
+              <p className="text-xs text-ink-soft">
+                Booked for {booking.occupants}. Record who actually showed up — this is a flag for
+                the front desk, it doesn&apos;t change the charge.
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-ink-soft">Arrived</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={occupantsInput}
+                  onChange={(e) => setOccupantsInput(e.target.value)}
+                  className="w-20"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setMode(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={busy || !occupantsInput}
+                  onClick={() =>
+                    act(
+                      { action: "setOccupants", actualOccupants: Number(occupantsInput) },
+                      "Headcount recorded",
+                    )
+                  }
+                >
+                  Save
+                </Button>
+              </div>
+            </section>
+          )}
+
           {mode === "checkout" && (
             <section className="space-y-3 rounded-xl border border-brand/40 bg-surface p-3.5">
               <h4 className="text-sm font-semibold text-ink">Check out</h4>
@@ -314,7 +377,7 @@ export function BookingDetail({
                 />
                 <span className="text-sm text-ink-soft">
                   night{Number(billedNights) > 1 ? "s" : ""} ·{" "}
-                  {formatCurrency(booking.nightlyRate * Number(billedNights || 0))}
+                  {formatCurrency(previewCharge(booking, Number(billedNights || 0)))}
                 </span>
               </div>
               <div className="flex gap-2">
@@ -545,8 +608,8 @@ export function BookingDetail({
             <section className="space-y-3 rounded-xl border border-brand/40 bg-surface p-3.5">
               <h4 className="text-sm font-semibold text-ink">Move to another room</h4>
               <p className="text-xs text-ink-soft">
-                The stay keeps its {formatCurrency(booking.nightlyRate)} rate — if the move should
-                cost less, apply a discount separately.
+                Nights before the move stay at {formatCurrency(booking.nightlyRate)}; nights after
+                bill at the new room&apos;s own rate.
               </p>
               <select
                 value={targetRoom}
@@ -613,9 +676,9 @@ export function BookingDetail({
               />
               <div className="rounded-lg bg-bg px-3 py-2 text-xs text-ink-soft">
                 Charge {formatCurrency(booking.totals.charge)} →{" "}
-                {formatCurrency(booking.nightlyRate * Number(billedNights || 0))}
+                {formatCurrency(previewCharge(booking, Number(billedNights || 0)))}
                 {booking.totals.paid >
-                  booking.nightlyRate * Number(billedNights || 0) -
+                  previewCharge(booking, Number(billedNights || 0)) -
                     booking.totals.discounts +
                     booking.totals.extraCharges && (
                   <span className="mt-1 block text-danger">
@@ -695,7 +758,9 @@ export function BookingDetail({
                   <LogIn className="h-4 w-4" /> Check in
                 </Button>
               )}
-              {booking.status === "CHECKED_IN" && (
+              {/* Check-out is ADMIN-only (guesthouse.adjust) — front desk
+                  checks guests in but hands closing out a stay to an ADMIN. */}
+              {isAdmin && booking.status === "CHECKED_IN" && (
                 <Button
                   className="col-span-2"
                   onClick={() => {
@@ -706,6 +771,11 @@ export function BookingDetail({
                   }}
                 >
                   <LogOut className="h-4 w-4" /> Check out
+                </Button>
+              )}
+              {(booking.status === "CHECKED_IN" || booking.status === "CHECKED_OUT") && (
+                <Button variant="outline" onClick={() => openPanel("occupants", booking)}>
+                  <Users className="h-4 w-4" /> Headcount
                 </Button>
               )}
               {isAdmin &&

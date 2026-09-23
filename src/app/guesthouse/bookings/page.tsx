@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useFetch } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
+import { bookingNotes } from "@/lib/booking-ui";
 import { BOOKING_STATUS_LABELS, type Booking, type BookingStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -114,6 +115,9 @@ export default function BookingsListPage() {
                 </span>
               )}
             </p>
+            {bookingNotes(b).length > 0 && (
+              <p className="mt-1 text-[11px] text-ink-faint">{bookingNotes(b).join(" · ")}</p>
+            )}
           </button>
         ))}
       </div>
@@ -141,6 +145,11 @@ export default function BookingsListPage() {
                 <td className="px-4 py-3 font-medium text-ink">
                   {b.guestName}
                   {b.groupName && <span className="ml-1.5 text-xs text-ink-faint">{b.groupName}</span>}
+                  {bookingNotes(b).length > 0 && (
+                    <p className="mt-0.5 text-[11px] font-normal text-ink-faint">
+                      {bookingNotes(b).join(" · ")}
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-ink-soft">{b.roomName}</td>
                 <td className="px-4 py-3 text-ink-soft">

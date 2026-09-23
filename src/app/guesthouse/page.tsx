@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
+import { bookingNotes } from "@/lib/booking-ui";
 import { BOOKING_STATUS_LABELS, type Booking, type RoomDto, type TodayBoard } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +110,7 @@ function BookingCard({
   primary?: { label: string; onClick: () => void; tone?: "default" | "accent" };
 }) {
   const unpaid = booking.totals.balance > 0 && !booking.complimentary;
+  const notes = bookingNotes(booking);
   return (
     <div className="rounded-xl bg-surface p-3.5 shadow-sm ring-1 ring-black/5">
       <button onClick={onOpen} className="w-full text-left">
@@ -138,6 +140,9 @@ function BookingCard({
           </div>
         </div>
       </button>
+      {notes.length > 0 && (
+        <p className="mt-1.5 text-[11px] text-ink-faint">{notes.join(" · ")}</p>
+      )}
       {unpaid && (
         <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-danger">
           <TriangleAlert className="h-3.5 w-3.5" />
@@ -323,21 +328,24 @@ export default function GuesthousePage() {
                 key={b.id}
                 booking={b}
                 onOpen={() => setOpenId(b.id)}
-                primary={{
-                  // Unpaid departures route through the folio for an ADMIN
-                  // to settle first — front desk never touches cash, so
-                  // they just check out and the balance stays outstanding
-                  // until an ADMIN records the payment separately.
-                  label:
-                    isAdmin && b.totals.balance > 0 && !b.complimentary
-                      ? "Settle & check out"
-                      : "Check out",
-                  tone: isAdmin && b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
-                  onClick: () =>
-                    isAdmin && b.totals.balance > 0 && !b.complimentary
-                      ? setOpenId(b.id)
-                      : quickAction(b.id, { action: "checkOut" }, "Checked out"),
-                }}
+                // Check-out is ADMIN-only (guesthouse.adjust) — front desk
+                // can see who's due out but hands the actual check-out (and
+                // any balance settlement) to an ADMIN.
+                primary={
+                  isAdmin
+                    ? {
+                        label:
+                          b.totals.balance > 0 && !b.complimentary
+                            ? "Settle & check out"
+                            : "Check out",
+                        tone: b.totals.balance > 0 && !b.complimentary ? "accent" : "default",
+                        onClick: () =>
+                          b.totals.balance > 0 && !b.complimentary
+                            ? setOpenId(b.id)
+                            : quickAction(b.id, { action: "checkOut" }, "Checked out"),
+                      }
+                    : undefined
+                }
               />
             ))}
           </Section>

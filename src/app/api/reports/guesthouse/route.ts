@@ -49,6 +49,7 @@ export const GET = api(async (request) => {
           room: true,
           payments: true,
           adjustments: { include: { createdBy: true } },
+          stays: true,
         },
       }),
       prisma.movement.findMany({
@@ -74,7 +75,7 @@ export const GET = api(async (request) => {
       // ago still needs chasing.
       prisma.booking.findMany({
         where: { status: "CHECKED_OUT", complimentary: false },
-        include: { room: true, payments: true, adjustments: true },
+        include: { room: true, payments: true, adjustments: true, stays: true },
       }),
       prisma.payment.findMany({
         where: { method: "CHARGE_TO_DEPARTMENT", settledAt: null },

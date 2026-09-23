@@ -13,7 +13,9 @@ import { ApiError } from "./errors";
 // and folio arithmetic live in exactly one place (the same discipline
 // src/lib/stock.ts applies to quantities and costing).
 //
-// Derived, never stored:  charge = nightlyRate × billedNights (0 if comped)
+// Derived, never stored:  charge = Σ nights × rate, per BookingRoomStay
+//                         segment (0 if comped) — a room move bills the
+//                         nights after it at the new room's own rate
 //                         netTotal = charge − discounts + charges
 //                         balance  = netTotal − payments
 //                         room status = from BookingRoomStay + RoomBlock
@@ -93,18 +95,57 @@ export interface FolioTotals {
   balance: number;
 }
 
+type FolioStaySegment = {
+  fromDate: Date;
+  toDate: Date;
+  rate: Prisma.Decimal | number;
+};
+
 type FolioInput = {
-  nightlyRate: Prisma.Decimal | number;
+  checkIn: Date;
   billedNights: number;
   complimentary: boolean;
+  stays: FolioStaySegment[];
   payments: { amount: Prisma.Decimal | number }[];
   adjustments: { kind: AdjustmentKind; amount: Prisma.Decimal | number }[];
 };
 
+/**
+ * Charge = sum of nights × that segment's own rate, clipped to the billed
+ * window — a room move to a differently-priced room actually changes what
+ * the nights after the move cost, instead of the whole stay keeping the
+ * first room's rate. If billedNights runs past the last recorded segment
+ * (a post-checkout upward correction), the remainder bills at that last
+ * segment's rate, matching the old flat-rate behavior for that edge case.
+ */
+function segmentedCharge(checkIn: Date, billedNights: number, stays: FolioStaySegment[]): number {
+  if (billedNights <= 0 || stays.length === 0) return 0;
+  const billingEnd = addDays(checkIn, billedNights);
+  const sorted = [...stays].sort((a, b) => +a.fromDate - +b.fromDate);
+
+  let total = 0;
+  let coveredUntil = checkIn;
+  for (const seg of sorted) {
+    const start = seg.fromDate > coveredUntil ? seg.fromDate : coveredUntil;
+    const end = seg.toDate < billingEnd ? seg.toDate : billingEnd;
+    if (end > start) {
+      total += nightsBetween(start, end) * Number(seg.rate);
+      coveredUntil = end;
+    }
+  }
+  if (coveredUntil < billingEnd) {
+    const lastRate = Number(sorted[sorted.length - 1].rate);
+    total += nightsBetween(coveredUntil, billingEnd) * lastRate;
+  }
+  return total;
+}
+
 /** The one place folio arithmetic happens. Comped stays charge nothing but
  *  keep their rate, so accounting can still report the notional value. */
 export function folioTotals(b: FolioInput): FolioTotals {
-  const charge = b.complimentary ? 0 : money(Number(b.nightlyRate) * b.billedNights);
+  const charge = b.complimentary
+    ? 0
+    : money(segmentedCharge(b.checkIn, b.billedNights, b.stays));
   let discounts = 0;
   let extraCharges = 0;
   for (const a of b.adjustments) {
@@ -124,8 +165,8 @@ export function folioTotals(b: FolioInput): FolioTotals {
 }
 
 /** Notional value of a complimentary stay — what it would have billed. */
-export function notionalValue(b: { nightlyRate: Prisma.Decimal | number; billedNights: number }) {
-  return money(Number(b.nightlyRate) * b.billedNights);
+export function notionalValue(b: { checkIn: Date; billedNights: number; stays: FolioStaySegment[] }) {
+  return money(segmentedCharge(b.checkIn, b.billedNights, b.stays));
 }
 
 // ── Period lock ─────────────────────────────────────────────────
@@ -355,7 +396,13 @@ export async function createBooking(input: CreateBookingInput, actorId: string) 
       });
 
       await tx.bookingRoomStay.create({
-        data: { bookingId: booking.id, roomId, fromDate: checkIn, toDate: checkOut },
+        data: {
+          bookingId: booking.id,
+          roomId,
+          fromDate: checkIn,
+          toDate: checkOut,
+          rate: input.rateOverride ?? room.rate,
+        },
       });
 
       await logEvent(tx, booking.id, actorId, "CREATED", {
@@ -398,15 +445,44 @@ export async function confirmBooking(id: string, actorId: string) {
   }, TX_OPTS);
 }
 
-export async function checkInBooking(id: string, actorId: string) {
+export async function checkInBooking(
+  id: string,
+  actorId: string,
+  opts: { actualOccupants?: number } = {},
+) {
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
     assertTransition(booking.status, "CHECKED_IN");
     const updated = await tx.booking.update({
       where: { id },
-      data: { status: "CHECKED_IN", actualCheckIn: new Date() },
+      data: {
+        status: "CHECKED_IN",
+        actualCheckIn: new Date(),
+        ...(opts.actualOccupants ? { actualOccupants: opts.actualOccupants } : {}),
+      },
     });
     await logEvent(tx, id, actorId, "CHECKED_IN", { from: booking.status, to: "CHECKED_IN" });
+    if (opts.actualOccupants && opts.actualOccupants !== booking.occupants) {
+      await logEvent(tx, id, actorId, "OCCUPANTS_CHANGED", {
+        detail: `Booked for ${booking.occupants} → arrived ${opts.actualOccupants}`,
+      });
+    }
+    return updated;
+  }, TX_OPTS);
+}
+
+/** Flag-only correction — booked headcount vs who actually showed up. No
+ *  price impact; there's no per-person rate to compute a surcharge from. */
+export async function setActualOccupants(id: string, actorId: string, actualOccupants: number) {
+  if (actualOccupants < 1) throw new ApiError(422, "Occupant count must be at least 1");
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
+    const updated = await tx.booking.update({ where: { id }, data: { actualOccupants } });
+    if (actualOccupants !== booking.occupants) {
+      await logEvent(tx, id, actorId, "OCCUPANTS_CHANGED", {
+        detail: `Booked for ${booking.occupants} → arrived ${actualOccupants}`,
+      });
+    }
     return updated;
   }, TX_OPTS);
 }
@@ -555,8 +631,10 @@ export async function changeDates(
 /**
  * Move a guest to another room mid-stay. The original stay row is closed at
  * the move date and a new one opens, so occupancy history stays truthful and
- * the vacated nights free up. The snapshot rate deliberately does not change
- * — if the move should cost less, ADMIN applies a discount explicitly.
+ * the vacated nights free up. The new segment snapshots the target room's
+ * own rate, so nights after the move bill at that room's price — a move to
+ * a cheaper or pricier room actually changes what's charged, no separate
+ * discount/charge needed for that difference.
  */
 export async function changeRoom(id: string, actorId: string, roomId: string, reason: string) {
   return prisma.$transaction(async (tx) => {
@@ -580,19 +658,36 @@ export async function changeRoom(id: string, actorId: string, roomId: string, re
       where: { bookingId: id },
       orderBy: { fromDate: "desc" },
     });
-    if (last && +moveFrom > +last.fromDate) {
+    const wholeStayMoves = last && +moveFrom <= +last.fromDate;
+    if (last && !wholeStayMoves) {
       await tx.bookingRoomStay.update({ where: { id: last.id }, data: { toDate: moveFrom } });
       await tx.bookingRoomStay.create({
-        data: { bookingId: id, roomId, fromDate: moveFrom, toDate: booking.checkOut, reason },
+        data: {
+          bookingId: id,
+          roomId,
+          fromDate: moveFrom,
+          toDate: booking.checkOut,
+          reason,
+          rate: target.rate,
+        },
       });
     } else if (last) {
-      await tx.bookingRoomStay.update({ where: { id: last.id }, data: { roomId, reason } });
+      await tx.bookingRoomStay.update({
+        where: { id: last.id },
+        data: { roomId, reason, rate: target.rate },
+      });
     }
 
     if (booking.status === "CHECKED_IN") {
       await tx.room.update({ where: { id: booking.roomId }, data: { needsCleaning: true } });
     }
-    const updated = await tx.booking.update({ where: { id }, data: { roomId } });
+    // Before arrival the booking hasn't billed anything yet, so its
+    // headline rate follows the room too, staying representative in list
+    // views. Mid-stay it's left alone — it still reflects the first segment.
+    const updated = await tx.booking.update({
+      where: { id },
+      data: wholeStayMoves ? { roomId, nightlyRate: target.rate } : { roomId },
+    });
     await logEvent(tx, id, actorId, "ROOM_CHANGED", {
       detail: `${booking.room.name} → ${target.name}${moveFrom > booking.checkIn ? ` from ${toDateString(moveFrom)}` : ""} · ${reason}`,
     });
@@ -651,7 +746,7 @@ export async function recordPayment(id: string, actorId: string, input: RecordPa
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({
       where: { id },
-      include: { payments: true, adjustments: true },
+      include: { payments: true, adjustments: true, stays: true },
     });
     if (booking.complimentary) {
       throw new ApiError(409, "This is a complimentary stay — there is nothing to settle");
@@ -711,7 +806,7 @@ export async function recordAdjustment(
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({
       where: { id },
-      include: { payments: true, adjustments: true },
+      include: { payments: true, adjustments: true, stays: true },
     });
     if (booking.complimentary) {
       throw new ApiError(409, "This is a complimentary stay — it bills nothing to adjust");

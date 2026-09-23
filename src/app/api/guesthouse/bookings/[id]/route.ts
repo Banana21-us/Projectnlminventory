@@ -9,6 +9,7 @@ import {
   checkOutBooking,
   confirmBooking,
   markNoShow,
+  setActualOccupants,
 } from "@/lib/booking";
 import { BOOKING_INCLUDE, toBookingDto } from "@/lib/dto";
 import { bookingActionSchema } from "@/lib/validators";
@@ -28,6 +29,9 @@ export const GET = api(async (_request, { params }: { params: Promise<{ id: stri
  *
  * The transitions themselves are front-desk work; correcting billed nights
  * after checkout changes what was charged, so it needs guesthouse.adjust.
+ * Check-out is also guesthouse.adjust-only — front desk (GUESTHOUSE role)
+ * checks guests in but never closes out a stay, so an unpaid balance can't
+ * slip past the desk unsettled.
  */
 export const PATCH = api(async (request, { params }: { params: Promise<{ id: string }> }) => {
   const user = await requireCan("guesthouse.manage");
@@ -39,9 +43,10 @@ export const PATCH = api(async (request, { params }: { params: Promise<{ id: str
       await confirmBooking(id, user.id);
       break;
     case "checkIn":
-      await checkInBooking(id, user.id);
+      await checkInBooking(id, user.id, { actualOccupants: data.actualOccupants });
       break;
     case "checkOut":
+      await requireCan("guesthouse.adjust");
       await checkOutBooking(id, user.id, { billedNights: data.billedNights });
       break;
     case "cancel":
@@ -59,6 +64,9 @@ export const PATCH = api(async (request, { params }: { params: Promise<{ id: str
     case "adjustNights":
       await requireCan("guesthouse.adjust");
       await adjustBilledNights(id, user.id, data.billedNights, data.reason);
+      break;
+    case "setOccupants":
+      await setActualOccupants(id, user.id, data.actualOccupants);
       break;
   }
 
