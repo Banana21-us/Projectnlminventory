@@ -12,6 +12,12 @@ import type { GuestDto } from "@/lib/types";
  * never needs access to pastor/department data). With `list=1`, the full
  * roster for the Guests tab, each with their visit count, last stay and
  * current credit balance.
+ *
+ * RecipientType.GUESTHOUSE is also used by inventory dispensing (e.g. a
+ * generic "Guesthouse" recipient stock is issued to) — that's a different
+ * thing from an actual guest who stayed here. `bookings: { some: {} }`
+ * excludes anyone who's never actually been booked, so those generic rows
+ * never show up as a "guest" with 0 visits.
  */
 export const GET = api(async (request) => {
   await requireCan("guesthouse.view");
@@ -23,6 +29,7 @@ export const GET = api(async (request) => {
     where: {
       type: "GUESTHOUSE",
       active: true,
+      bookings: { some: {} },
       ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
     },
     include: { district: true },
