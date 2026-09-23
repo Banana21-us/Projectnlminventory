@@ -33,6 +33,7 @@ model User {
   adjustments        FolioAdjustment[]
   bookingEvents      BookingEvent[]
   guesthouseLocks    GuesthouseSettings[]
+  guestCredits       GuestCredit[]
 }
 
 // ── Catalog ─────────────────────────────────────────────────────
@@ -177,6 +178,7 @@ model Recipient {
   // DEPARTMENT recipient can be the payer on a charged-to-office stay.
   bookings   Booking[]     @relation("BookingGuest")
   paying     Payment[]     @relation("PaymentPayer")
+  credits    GuestCredit[] @relation("GuestCredit")
 }
 
 // ── Movements (single audited ledger) ───────────────────────────
@@ -369,6 +371,8 @@ model Booking {
   adjustments  FolioAdjustment[]
   events       BookingEvent[]
   stays        BookingRoomStay[]
+  creditsIssued GuestCredit[] @relation("CreditSource")
+  creditsApplied GuestCredit[] @relation("CreditUsed")
 
   @@index([roomId, checkIn])
   @@index([status, checkIn])
@@ -404,6 +408,7 @@ enum PaymentMethod {
   GCASH
   CHECK
   CHARGE_TO_DEPARTMENT
+  CREDIT // settled from the guest's own credit balance — see GuestCredit
   OTHER
 }
 
@@ -434,6 +439,30 @@ model Payment {
 enum AdjustmentKind {
   DISCOUNT // reduces what's owed — peso amount, ADMIN only, before payment
   CHARGE // adds to what's owed — damages, laundry, replaced key
+}
+
+/// Append-only credit ledger for a repeat GUESTHOUSE recipient. A positive
+/// row is credit earned (an overpayment converted instead of refunded); a
+/// negative row is credit spent (applied as a Payment with method CREDIT on
+/// a later booking). Balance = sum of all rows for the recipient — never
+/// stored, always derived, same discipline as Movement/Payment.
+model GuestCredit {
+  id              String   @id @default(cuid())
+  recipientId     String
+  recipient       Recipient @relation("GuestCredit", fields: [recipientId], references: [id])
+  amount          Decimal  @db.Decimal(10, 2)
+  reason          String?
+  // The overpaid booking this credit came from (positive rows only).
+  sourceBookingId String?
+  sourceBooking   Booking? @relation("CreditSource", fields: [sourceBookingId], references: [id])
+  // The booking this credit was spent on (negative rows only).
+  usedBookingId   String?
+  usedBooking     Booking? @relation("CreditUsed", fields: [usedBookingId], references: [id])
+  recordedById    String
+  recordedBy      User     @relation(fields: [recordedById], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([recipientId, createdAt])
 }
 
 /// Append-only folio ledger. Never edited; a mistake is corrected by a new
@@ -471,6 +500,8 @@ enum BookingEventType {
   COMPED
   RECEIVABLE_SETTLED
   OCCUPANTS_CHANGED
+  CREDIT_ISSUED
+  CREDIT_APPLIED
 }
 
 /// Audit trail — answers "who cancelled this?" and "why is this stay ₱2,000

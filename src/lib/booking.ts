@@ -776,6 +776,16 @@ export async function recordPayment(id: string, actorId: string, input: RecordPa
     if (input.method === "CHARGE_TO_DEPARTMENT" && !input.payerId) {
       throw new ApiError(422, "Pick the department or district being charged");
     }
+    if (input.method === "CREDIT") {
+      if (amount < 0) throw new ApiError(422, "A credit refund is a plain refund, not a credit payment");
+      if (!booking.recipientId) {
+        throw new ApiError(422, "This booking isn't linked to a guest — there is no credit to apply");
+      }
+      const available = await guestCreditBalance(booking.recipientId, tx);
+      if (amount > available) {
+        throw new ApiError(422, `That guest only has ₱${available.toFixed(2)} credit available`);
+      }
+    }
 
     const payment = await tx.payment.create({
       data: {
@@ -790,9 +800,24 @@ export async function recordPayment(id: string, actorId: string, input: RecordPa
         recordedById: actorId,
       },
     });
-    await logEvent(tx, id, actorId, amount < 0 ? "REFUND_RECORDED" : "PAYMENT_RECORDED", {
-      detail: `₱${Math.abs(amount).toFixed(2)} · ${input.method.replace(/_/g, " ").toLowerCase()}`,
-    });
+    if (input.method === "CREDIT") {
+      await tx.guestCredit.create({
+        data: {
+          recipientId: booking.recipientId!,
+          amount: -amount,
+          reason: "Applied to booking",
+          usedBookingId: id,
+          recordedById: actorId,
+        },
+      });
+      await logEvent(tx, id, actorId, "CREDIT_APPLIED", {
+        detail: `₱${amount.toFixed(2)} credit applied`,
+      });
+    } else {
+      await logEvent(tx, id, actorId, amount < 0 ? "REFUND_RECORDED" : "PAYMENT_RECORDED", {
+        detail: `₱${Math.abs(amount).toFixed(2)} · ${input.method.replace(/_/g, " ").toLowerCase()}`,
+      });
+    }
     return payment;
   }, TX_OPTS);
 }
@@ -843,6 +868,62 @@ export async function recordAdjustment(
       detail: `₱${amount.toFixed(2)} · ${input.reason}`,
     });
     return adjustment;
+  }, TX_OPTS);
+}
+
+// ── Guest credit ────────────────────────────────────────────────
+
+/** Sum of a recipient's credit ledger — positive rows earned, negative spent. */
+export async function guestCreditBalance(
+  recipientId: string,
+  tx: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<number> {
+  const agg = await tx.guestCredit.aggregate({ where: { recipientId }, _sum: { amount: true } });
+  return Number(agg._sum.amount ?? 0);
+}
+
+/**
+ * Converts an overpayment into guest credit instead of a cash refund — an
+ * alternative to `recordPayment`'s negative-amount refund, not a replacement
+ * for it (ADMIN picks whichever fits at checkout). Only possible once the
+ * booking is linked to a GUESTHOUSE recipient, since credit is tracked
+ * per-guest, not per-booking — e.g. paid for 3 nights, stayed 2: the unused
+ * night's value can sit as credit until the guest's next visit instead of
+ * being handed back as cash.
+ */
+export async function issueGuestCredit(
+  bookingId: string,
+  actorId: string,
+  input: { amount: number; reason: string },
+) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { payments: true, adjustments: true, stays: true },
+    });
+    if (!booking.recipientId) {
+      throw new ApiError(422, "Link this booking to a guest before crediting an overpayment");
+    }
+    const amount = Math.round(input.amount * 100) / 100;
+    if (amount <= 0) throw new ApiError(422, "Amount must be greater than zero");
+    const totals = folioTotals(booking);
+    if (totals.balance >= 0 || amount > Math.abs(totals.balance)) {
+      throw new ApiError(422, "That is more than the overpayment on this stay");
+    }
+
+    const credit = await tx.guestCredit.create({
+      data: {
+        recipientId: booking.recipientId,
+        amount,
+        reason: input.reason,
+        sourceBookingId: bookingId,
+        recordedById: actorId,
+      },
+    });
+    await logEvent(tx, bookingId, actorId, "CREDIT_ISSUED", {
+      detail: `₱${amount.toFixed(2)} credited to guest instead of refunded · ${input.reason}`,
+    });
+    return credit;
   }, TX_OPTS);
 }
 

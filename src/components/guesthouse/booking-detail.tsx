@@ -60,8 +60,8 @@ type Mode =
   | "cancel"
   | "extend"
   | "move"
-  | "adjustNights"
   | "refund"
+  | "credit"
   | "occupants";
 
 function formatDate(day: string): string {
@@ -134,6 +134,11 @@ export function BookingDetail({
     open && bookingId ? `/api/guesthouse/bookings/${bookingId}` : "",
   );
 
+  const { data: guestCredit } = useFetch<{ available: number }>(
+    booking?.recipientId ? `/api/guesthouse/guests/${booking.recipientId}/credit` : "",
+  );
+  const availableCredit = guestCredit?.available ?? 0;
+
   const [mode, setMode] = useState<Mode>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +167,13 @@ export function BookingDetail({
    *  the point of the click, not synced back in an effect. */
   function openPanel(next: Exclude<Mode, null>, booking: Booking) {
     setError(null);
-    setAmount(String(booking.totals.balance > 0 ? booking.totals.balance : ""));
+    setAmount(
+      next === "discount" || next === "charge"
+        ? "0"
+        : next === "refund" || next === "credit"
+          ? String(booking.totals.balance < 0 ? Math.abs(booking.totals.balance) : "")
+          : String(booking.totals.balance > 0 ? booking.totals.balance : ""),
+    );
     setMethod("CASH");
     setPayerId("");
     setOrNumber("");
@@ -405,6 +416,21 @@ export function BookingDetail({
           {mode === "settle" && (
             <section className="space-y-3 rounded-xl border border-brand/40 bg-surface p-3.5">
               <h4 className="text-sm font-semibold text-ink">Record payment</h4>
+              {availableCredit > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-success-tint px-3 py-2 text-xs text-success">
+                  <span>₱{availableCredit.toFixed(2)} credit available for this guest</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setMethod("CREDIT");
+                      setAmount(String(Math.min(availableCredit, booking.totals.balance)));
+                    }}
+                  >
+                    Apply credit
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {METHODS.map((m) => (
                   <button
@@ -418,7 +444,24 @@ export function BookingDetail({
                     {PAYMENT_METHOD_LABELS[m]}
                   </button>
                 ))}
+                {availableCredit > 0 && (
+                  <button
+                    onClick={() => setMethod("CREDIT")}
+                    className={cn(
+                      "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                      method === "CREDIT" ? "bg-brand text-white" : "bg-line/50 text-ink-soft",
+                    )}
+                  >
+                    {PAYMENT_METHOD_LABELS.CREDIT}
+                  </button>
+                )}
               </div>
+              {method === "CREDIT" && (
+                <p className="text-xs text-ink-faint">
+                  Up to ₱{Math.min(availableCredit, booking.totals.balance).toFixed(2)} can be
+                  applied from this guest&apos;s credit balance.
+                </p>
+              )}
               {method === "CHARGE_TO_DEPARTMENT" && (
                 <select
                   value={payerId}
@@ -444,7 +487,15 @@ export function BookingDetail({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setAmount(String(booking.totals.balance))}
+                  onClick={() =>
+                    setAmount(
+                      String(
+                        method === "CREDIT"
+                          ? Math.min(availableCredit, booking.totals.balance)
+                          : booking.totals.balance,
+                      ),
+                    )
+                  }
                 >
                   Full
                 </Button>
@@ -652,66 +703,6 @@ export function BookingDetail({
             </section>
           )}
 
-          {mode === "adjustNights" && (
-            <section className="space-y-3 rounded-xl border border-brand/40 bg-surface p-3.5">
-              <h4 className="text-sm font-semibold text-ink">Adjust charge</h4>
-              <p className="text-xs text-ink-soft">
-                Booked {booking.nights} night{booking.nights > 1 ? "s" : ""} · currently billed{" "}
-                {booking.billedNights}
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-ink-soft">Bill for</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={booking.nights}
-                  value={billedNights}
-                  onChange={(e) => setBilledNights(e.target.value)}
-                  className="w-20"
-                />
-                <span className="text-sm text-ink-soft">nights</span>
-              </div>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason (required)"
-              />
-              <div className="rounded-lg bg-bg px-3 py-2 text-xs text-ink-soft">
-                Charge {formatCurrency(booking.totals.charge)} →{" "}
-                {formatCurrency(previewCharge(booking, Number(billedNights || 0)))}
-                {booking.totals.paid >
-                  previewCharge(booking, Number(billedNights || 0)) -
-                    booking.totals.discounts +
-                    booking.totals.extraCharges && (
-                  <span className="mt-1 block text-danger">
-                    ⚠ This leaves a refund due — record it separately once the cash is handed back.
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="ghost" className="flex-1" onClick={() => setMode(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1"
-                  disabled={busy || !reason.trim()}
-                  onClick={() =>
-                    act(
-                      {
-                        action: "adjustNights",
-                        billedNights: Number(billedNights),
-                        reason: reason.trim(),
-                      },
-                      "Charge adjusted",
-                    )
-                  }
-                >
-                  Apply
-                </Button>
-              </div>
-            </section>
-          )}
-
           {mode === "refund" && (
             <section className="space-y-3 rounded-xl border border-danger/40 bg-surface p-3.5">
               <h4 className="text-sm font-semibold text-ink">Record refund</h4>
@@ -742,6 +733,46 @@ export function BookingDetail({
                   }
                 >
                   Refund
+                </Button>
+              </div>
+            </section>
+          )}
+
+          {mode === "credit" && (
+            <section className="space-y-3 rounded-xl border border-success/40 bg-surface p-3.5">
+              <h4 className="text-sm font-semibold text-ink">Credit to guest</h4>
+              <p className="text-xs text-ink-soft">
+                Keeps the overpayment as credit for {booking.guestName}&apos;s next stay instead of
+                handing cash back — auto-suggested at settlement time.
+              </p>
+              <Input
+                type="number"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Amount to credit"
+              />
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Reason (e.g. paid 3 nights, stayed 2)"
+              />
+              <div className="flex gap-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setMode(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={busy || !reason.trim()}
+                  onClick={() =>
+                    send(
+                      `/api/guesthouse/bookings/${bookingId}/credit`,
+                      { amount: Number(amount), reason: reason.trim() },
+                      "Credit issued",
+                    )
+                  }
+                >
+                  Credit
                 </Button>
               </div>
             </section>
@@ -831,14 +862,14 @@ export function BookingDetail({
                   </Button>
                 </>
               )}
-              {isAdmin && booking.status === "CHECKED_OUT" && (
-                <Button variant="outline" onClick={() => openPanel("adjustNights", booking)}>
-                  Adjust nights
-                </Button>
-              )}
               {isAdmin && booking.totals.balance < 0 && (
                 <Button variant="outline" onClick={() => openPanel("refund", booking)}>
                   Record refund
+                </Button>
+              )}
+              {isAdmin && booking.totals.balance < 0 && booking.recipientId && (
+                <Button variant="outline" onClick={() => openPanel("credit", booking)}>
+                  Credit to guest
                 </Button>
               )}
             </div>

@@ -327,7 +327,15 @@ export const bookingActionSchema = z.discriminatedUnion("action", [
 
 export const paymentCreateSchema = z.object({
   amount: z.number().refine((v) => v !== 0, "Amount cannot be zero"),
-  method: z.enum(["CASH", "BANK_TRANSFER", "GCASH", "CHECK", "CHARGE_TO_DEPARTMENT", "OTHER"]),
+  method: z.enum([
+    "CASH",
+    "BANK_TRANSFER",
+    "GCASH",
+    "CHECK",
+    "CHARGE_TO_DEPARTMENT",
+    "CREDIT",
+    "OTHER",
+  ]),
   payerId: z.string().optional(),
   orNumber: z.string().trim().max(40).optional(),
   reference: z.string().trim().max(120).optional(),
@@ -339,6 +347,16 @@ export const adjustmentCreateSchema = z.object({
   kind: z.enum(["DISCOUNT", "CHARGE"]),
   amount: z.number().min(0.01, "Amount must be greater than zero"),
   reason: z.string().trim().min(1, "A reason is required").max(200),
+});
+
+export const guestCreditCreateSchema = z.object({
+  amount: z.number().min(0.01, "Amount must be greater than zero"),
+  reason: z.string().trim().min(1, "A reason is required").max(200),
+});
+
+export const guestCreateSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+  email: z.string().trim().email().optional(),
 });
 
 export const roomCreateSchema = z.object({

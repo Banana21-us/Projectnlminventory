@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useFetch } from "@/lib/hooks";
 import { useCurrentUser } from "@/lib/use-user";
 import { formatCurrency } from "@/lib/format";
-import type { RoomAvailabilityDto } from "@/lib/types";
+import type { RecipientDto, RoomAvailabilityDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** "2026-09-18" for an offset from today, in the browser's local calendar. */
@@ -94,6 +94,8 @@ export function BookingSheet({
   const isAdmin = can("guesthouse.adjust");
 
   const [guestName, setGuestName] = useState("");
+  const [recipientId, setRecipientId] = useState<string | null>(null);
+  const [guestSuggestOpen, setGuestSuggestOpen] = useState(false);
   const [contact, setContact] = useState("");
   const [checkIn, setCheckIn] = useState(dayString());
   const [checkOut, setCheckOut] = useState(dayString(1));
@@ -120,6 +122,17 @@ export function BookingSheet({
 
   const { data: rooms, loading } = useFetch<RoomAvailabilityDto[]>(
     open && validRange ? `/api/guesthouse/rooms?from=${windowStart}&to=${windowEnd}` : "",
+  );
+
+  // Repeat-guest suggestions — picking one links the booking to that
+  // guest's Recipient record, which is what the credit-balance feature
+  // hangs off. Typing a name that matches no one is fine too: submit()
+  // find-or-creates it, so it's suggested automatically next time.
+  const guestQuery = guestName.trim();
+  const { data: guestSuggestions } = useFetch<RecipientDto[]>(
+    guestSuggestOpen && guestQuery.length >= 2
+      ? `/api/guesthouse/guests?search=${encodeURIComponent(guestQuery)}`
+      : "",
   );
 
   // Free-for-these-dates is computed from the strip data, so the list and
@@ -153,12 +166,26 @@ export function BookingSheet({
 
     setSaving(true);
     try {
+      // Link (or silently create) the guest's Recipient record so repeat
+      // visits show up as suggestions and can accrue/spend credit.
+      let linkedRecipientId = recipientId;
+      if (!linkedRecipientId) {
+        const guestRes = await fetch("/api/guesthouse/guests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: guestName.trim() }),
+        });
+        const guestJson = await guestRes.json().catch(() => null);
+        if (guestRes.ok) linkedRecipientId = guestJson.id;
+      }
+
       const res = await fetch("/api/guesthouse/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           roomIds,
           guestName: guestName.trim(),
+          ...(linkedRecipientId ? { recipientId: linkedRecipientId } : {}),
           ...(contact.trim() ? { contact: contact.trim() } : {}),
           ...(roomIds.length > 1 && groupName.trim() ? { groupName: groupName.trim() } : {}),
           checkIn,
@@ -194,12 +221,40 @@ export function BookingSheet({
       <div className="space-y-5">
         <div className="space-y-2">
           <label className="text-xs font-medium text-ink-soft">Guest</label>
-          <Input
-            value={guestName}
-            onChange={(e) => setGuestName(e.target.value)}
-            placeholder="Guest or group name"
-            autoFocus
-          />
+          <div className="relative">
+            <Input
+              value={guestName}
+              onChange={(e) => {
+                setGuestName(e.target.value);
+                setRecipientId(null);
+                setGuestSuggestOpen(true);
+              }}
+              onFocus={() => setGuestSuggestOpen(true)}
+              onBlur={() => setTimeout(() => setGuestSuggestOpen(false), 150)}
+              placeholder="Guest or group name"
+              autoFocus
+            />
+            {guestSuggestOpen && guestSuggestions && guestSuggestions.length > 0 && (
+              <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg bg-surface shadow-lg ring-1 ring-black/5">
+                {guestSuggestions.map((g) => (
+                  <li key={g.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setGuestName(g.name);
+                        setRecipientId(g.id);
+                        setGuestSuggestOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-sm font-medium text-ink hover:bg-brand-tint hover:text-brand-dark"
+                    >
+                      {g.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <Input
             value={contact}
             onChange={(e) => setContact(e.target.value)}

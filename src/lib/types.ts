@@ -266,6 +266,7 @@ export type PaymentMethod =
   | "GCASH"
   | "CHECK"
   | "CHARGE_TO_DEPARTMENT"
+  | "CREDIT"
   | "OTHER";
 
 export type AdjustmentKind = "DISCOUNT" | "CHARGE";
@@ -285,6 +286,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   GCASH: "GCash",
   CHECK: "Check",
   CHARGE_TO_DEPARTMENT: "Charge to department",
+  CREDIT: "Guest credit",
   OTHER: "Other",
 };
 
