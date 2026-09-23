@@ -179,6 +179,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               {secondaryNav.map((item) => (
                 <SidebarLink key={item.href} {...item} active={pathname === item.href} />
               ))}
+              <p className="mt-1 select-none px-2 text-center text-[10px] text-ink-faint/60 lg:text-left">
+                v1.5
+              </p>
             </div>
           )}
         </nav>
