@@ -7,12 +7,13 @@ import { adjustmentCreateSchema } from "@/lib/validators";
 /**
  * POST /api/guesthouse/bookings/[id]/adjustments
  *
- * Discounts and extra charges are both ADMIN decisions. The service layer
- * enforces the rule that a discount can only land before any payment — after
- * settlement it would be a refund, which is a separate, deliberate act.
+ * Discounts and extra charges are front-desk decisions (guesthouse.charges);
+ * settling/refunding money is a separate, ADMIN-only decision
+ * (guesthouse.adjust). The service layer enforces the rule that a discount
+ * can only land before any payment — after settlement it would be a refund.
  */
 export const POST = api(async (request, { params }: { params: Promise<{ id: string }> }) => {
-  const user = await requireCan("guesthouse.adjust");
+  const user = await requireCan("guesthouse.charges");
   const { id } = await params;
   const data = await validate(request, adjustmentCreateSchema);
 

@@ -19,9 +19,9 @@ export const PERMISSIONS = {
   // Front desk runs the rooms; money decisions stay with ADMIN. The split
   // mirrors inventory.view/manage vs inventory.pricing.
   "guesthouse.accounting": ["ADMIN"], // revenue/cost aggregates, period PDF
-  "guesthouse.adjust": ["ADMIN"], // discounts, extra charges, comps, refunds,
-  //                                 post-checkout night corrections
-  "guesthouse.rooms": ["ADMIN"], // room setup, rates, maintenance blocks, period lock
+  "guesthouse.adjust": ["ADMIN"], // payments, refunds, post-checkout night corrections
+  "guesthouse.charges": ["ADMIN", "GUESTHOUSE"], // discounts, extra charges — front desk can apply, but not settle/refund
+  "guesthouse.rooms": ["ADMIN", "GUESTHOUSE"], // room setup, rates, maintenance blocks, period lock
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

@@ -127,6 +127,7 @@ export function BookingDetail({
   const toast = useToast();
   const { can } = useCurrentUser();
   const isAdmin = can("guesthouse.adjust");
+  const canCharge = can("guesthouse.charges");
 
   const { data: booking, loading, refetch } = useFetch<Booking>(
     open && bookingId ? `/api/guesthouse/bookings/${bookingId}` : "",
@@ -807,7 +808,7 @@ export function BookingDetail({
                   </Button>
                 </>
               )}
-              {isAdmin && !booking.complimentary && booking.status !== "CANCELLED" && (
+              {canCharge && !booking.complimentary && booking.status !== "CANCELLED" && (
                 <>
                   <Button
                     variant="outline"
