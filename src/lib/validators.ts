@@ -364,6 +364,10 @@ export const guestCreditCreateSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required").max(200),
 });
 
+export const forfeitCreateSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required").max(200),
+});
+
 export const guestCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   email: z.string().trim().email().optional(),

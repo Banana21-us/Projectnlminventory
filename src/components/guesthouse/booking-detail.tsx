@@ -62,6 +62,7 @@ type Mode =
   | "move"
   | "refund"
   | "credit"
+  | "forfeit"
   | "occupants";
 
 function formatDate(day: string): string {
@@ -189,8 +190,11 @@ export function BookingDetail({
     setBusy(true);
     setError(null);
     try {
+      const isPostEndpoint = ["/payments", "/adjustments", "/credit", "/forfeit"].some((p) =>
+        url.includes(p),
+      );
       const res = await fetch(url, {
-        method: url.includes("/payments") || url.includes("/adjustments") ? "POST" : "PATCH",
+        method: isPostEndpoint ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -778,6 +782,41 @@ export function BookingDetail({
             </section>
           )}
 
+          {mode === "forfeit" && (
+            <section className="space-y-3 rounded-xl border border-warning/40 bg-surface p-3.5">
+              <h4 className="text-sm font-semibold text-ink">Forfeit reservation fee</h4>
+              <p className="text-xs text-ink-soft">
+                Keeps the ₱{Math.abs(booking.totals.balance).toFixed(2)} already paid as revenue —
+                no refund, no credit. The usual no-show penalty for holding a room that went
+                unused.
+              </p>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Reason (optional context)"
+              />
+              <div className="flex gap-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setMode(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  disabled={busy}
+                  onClick={() =>
+                    send(
+                      `/api/guesthouse/bookings/${bookingId}/forfeit`,
+                      { reason: reason.trim() || "No-show — reservation fee forfeited" },
+                      "Fee forfeited",
+                    )
+                  }
+                >
+                  Forfeit
+                </Button>
+              </div>
+            </section>
+          )}
+
           {/* ── Actions ── */}
           {!mode && (
             <div className="grid grid-cols-2 gap-2">
@@ -870,6 +909,11 @@ export function BookingDetail({
               {isAdmin && booking.totals.balance < 0 && booking.recipientId && (
                 <Button variant="outline" onClick={() => openPanel("credit", booking)}>
                   Credit to guest
+                </Button>
+              )}
+              {isAdmin && booking.totals.balance < 0 && booking.status === "NO_SHOW" && (
+                <Button variant="outline" onClick={() => openPanel("forfeit", booking)}>
+                  Forfeit fee
                 </Button>
               )}
             </div>

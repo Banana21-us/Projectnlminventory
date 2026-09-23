@@ -106,6 +106,7 @@ type FolioInput = {
   checkIn: Date;
   billedNights: number;
   complimentary: boolean;
+  status: BookingStatus;
   stays: FolioStaySegment[];
   payments: { amount: Prisma.Decimal | number }[];
   adjustments: { kind: AdjustmentKind; amount: Prisma.Decimal | number }[];
@@ -142,11 +143,17 @@ function segmentedCharge(checkIn: Date, billedNights: number, stays: FolioStaySe
 }
 
 /** The one place folio arithmetic happens. Comped stays charge nothing but
- *  keep their rate, so accounting can still report the notional value. */
+ *  keep their rate, so accounting can still report the notional value.
+ *  Cancelled/no-show bookings never happened, so they charge nothing too —
+ *  any reservation fee already paid shows up as a negative balance (money
+ *  owed back) instead of being masked by a full-stay charge that was never
+ *  earned. What happens to that fee (refund, credit, or forfeit on a
+ *  no-show) is a deliberate ADMIN decision made afterward, not baked in here. */
 export function folioTotals(b: FolioInput): FolioTotals {
-  const charge = b.complimentary
-    ? 0
-    : money(segmentedCharge(b.checkIn, b.billedNights, b.stays));
+  const charge =
+    b.complimentary || b.status === "CANCELLED" || b.status === "NO_SHOW"
+      ? 0
+      : money(segmentedCharge(b.checkIn, b.billedNights, b.stays));
   let discounts = 0;
   let extraCharges = 0;
   for (const a of b.adjustments) {
@@ -571,17 +578,12 @@ export async function checkOutBooking(
 
 export async function cancelBooking(id: string, actorId: string, reason: string) {
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUniqueOrThrow({
-      where: { id },
-      include: { payments: true },
-    });
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id } });
     assertTransition(booking.status, "CANCELLED");
-    if (booking.payments.length > 0) {
-      throw new ApiError(
-        409,
-        "This booking already has payments on it. Refund them first (ADMIN), then cancel.",
-      );
-    }
+    // Cancelling zeroes the charge (see folioTotals), so any reservation fee
+    // already paid just becomes a negative balance — refund it or credit the
+    // guest afterward with the same buttons used everywhere else. No need
+    // to force that decision before the booking can even be cancelled.
     const updated = await tx.booking.update({
       where: { id },
       data: { status: "CANCELLED", cancelReason: reason },
@@ -766,10 +768,14 @@ export interface RecordPaymentInput {
 }
 
 /**
- * Settlement of an existing booking — at or after checkout. (An advance
- * payment/reservation fee taken at booking time goes through
- * `createBooking` instead, since front desk can take that but not this.) A
- * negative amount is a refund and is gated on guesthouse.adjust by the route.
+ * Settlement of an existing booking — at or after checkout — or a refund
+ * (negative amount) on any booking that still has money owed back, which
+ * includes a cancelled/no-show stay's reservation fee (its charge is zeroed,
+ * see folioTotals, so the fee sits as a negative balance until refunded or
+ * credited). An advance payment/reservation fee taken at booking time goes
+ * through `createBooking` instead, since front desk can take that but not
+ * this. A negative amount is a refund and is gated on guesthouse.adjust by
+ * the route.
  */
 export async function recordPayment(id: string, actorId: string, input: RecordPaymentInput) {
   return prisma.$transaction(async (tx) => {
@@ -780,7 +786,10 @@ export async function recordPayment(id: string, actorId: string, input: RecordPa
     if (booking.complimentary) {
       throw new ApiError(409, "This is a complimentary stay — there is nothing to settle");
     }
-    if (booking.status !== "CHECKED_IN" && booking.status !== "CHECKED_OUT") {
+    const amountIsRefund = input.amount < 0;
+    const canSettle = booking.status === "CHECKED_IN" || booking.status === "CHECKED_OUT";
+    const canRefund = canSettle || booking.status === "CANCELLED" || booking.status === "NO_SHOW";
+    if (amountIsRefund ? !canRefund : !canSettle) {
       throw new ApiError(409, "A stay can only be settled at or after checkout");
     }
     await assertNotLocked(booking.checkIn, "That stay");
@@ -891,6 +900,37 @@ export async function recordAdjustment(
     });
     await logEvent(tx, id, actorId, input.kind === "DISCOUNT" ? "DISCOUNT_APPLIED" : "CHARGE_ADDED", {
       detail: `₱${amount.toFixed(2)} · ${input.reason}`,
+    });
+    return adjustment;
+  }, TX_OPTS);
+}
+
+/**
+ * A no-show's reservation fee, kept instead of refunded or credited — the
+ * default "paid to hold the room, didn't show up" penalty. Posts a CHARGE
+ * adjustment for exactly the outstanding amount so the balance goes to zero
+ * and the ledger records why. This is one option alongside "Record refund"
+ * and "Credit to guest" for the same negative balance — ADMIN picks
+ * whichever fits, nothing forfeits automatically.
+ */
+export async function forfeitPayment(bookingId: string, actorId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { payments: true, adjustments: true, stays: true },
+    });
+    if (booking.status !== "NO_SHOW") {
+      throw new ApiError(409, "Only a no-show's reservation fee can be forfeited");
+    }
+    const totals = folioTotals(booking);
+    if (totals.balance >= 0) throw new ApiError(422, "There is nothing paid to forfeit");
+    const amount = Math.abs(totals.balance);
+
+    const adjustment = await tx.folioAdjustment.create({
+      data: { bookingId, kind: "CHARGE", amount, reason, createdById: actorId },
+    });
+    await logEvent(tx, bookingId, actorId, "CHARGE_ADDED", {
+      detail: `₱${amount.toFixed(2)} reservation fee forfeited · ${reason}`,
     });
     return adjustment;
   }, TX_OPTS);
