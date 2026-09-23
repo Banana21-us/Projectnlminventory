@@ -24,9 +24,10 @@ import { ApiError } from "./errors";
 // allowance stock.ts uses.
 const TX_OPTS = { timeout: 20_000, maxWait: 10_000 };
 
-/** Statuses that still hold their room against new bookings. CHECKED_OUT
- *  counts because its stay rows are truncated to the nights actually used. */
-const BLOCKING: BookingStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
+/** Statuses that still hold their room against new bookings. CHECKED_OUT is
+ *  excluded — once a guest leaves, the room frees for rebooking immediately
+ *  (gated only by `needsCleaning`, not by the nights already billed). */
+const BLOCKING: BookingStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN"];
 
 /** Legal status moves. Everything else is rejected, and CHECKED_OUT /
  *  CANCELLED / NO_SHOW are terminal — a change of mind is a new booking. */
@@ -245,7 +246,9 @@ export async function roomAvailability(
       conflict ??= `Out of service — ${b.reason}`;
     }
     if (room.outOfService) conflict ??= "Out of service";
+    if (room.needsCleaning) conflict ??= "Needs cleaning";
 
+    const free = busy.size === 0 && !room.outOfService && !room.needsCleaning;
     return {
       id: room.id,
       name: room.name,
@@ -254,8 +257,8 @@ export async function roomAvailability(
       needsCleaning: room.needsCleaning,
       outOfService: room.outOfService,
       busyNights: [...busy].sort(),
-      free: busy.size === 0 && !room.outOfService,
-      conflict: busy.size === 0 && !room.outOfService ? null : conflict,
+      free,
+      conflict: free ? null : conflict,
     };
   });
 }
@@ -275,6 +278,7 @@ async function assertRoomFree(
   const room = await tx.room.findUnique({ where: { id: roomId } });
   if (!room || !room.active) throw new ApiError(404, "Room not found");
   if (room.outOfService) throw new ApiError(409, `${room.name} is out of service`);
+  if (room.needsCleaning) throw new ApiError(409, `${room.name} needs cleaning before it can be booked`);
 
   const clash = await tx.bookingRoomStay.findFirst({
     where: {
@@ -558,8 +562,8 @@ export async function cancelBooking(id: string, actorId: string, reason: string)
       where: { id },
       data: { status: "CANCELLED", cancelReason: reason },
     });
-    // Stay rows stay for audit; BLOCKING excludes CANCELLED, so the room
-    // frees immediately.
+    // Stay rows stay for audit; BLOCKING excludes CANCELLED (and CHECKED_OUT),
+    // so the room frees immediately.
     await logEvent(tx, id, actorId, "CANCELLED", {
       from: booking.status,
       to: "CANCELLED",
