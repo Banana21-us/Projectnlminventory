@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signIn, signOut, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -62,31 +62,13 @@ const FIELD_ERROR_ICON = (
 
 type Notice = { kind: "isError" | "isOk" | "isInfo"; body: React.ReactNode } | null;
 
-/** Reads a remembered username/mode on the client only — SSR has no
- *  localStorage, so this always starts blank on the server and picks up
- *  the saved value the moment the client mounts and re-renders. */
-function readRemembered(): { username: string; mode: Mode; remember: boolean } {
-  if (typeof window === "undefined") return { username: "", mode: "inventory", remember: false };
-  try {
-    const savedUser = localStorage.getItem("nlm.user");
-    const savedMode = localStorage.getItem("nlm.mode") as Mode | null;
-    return {
-      username: savedUser ?? "",
-      mode: savedMode && ORDER.includes(savedMode) ? savedMode : "inventory",
-      remember: !!savedUser,
-    };
-  } catch {
-    return { username: "", mode: "inventory", remember: false };
-  }
-}
-
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>(() => readRemembered().mode);
-  const [username, setUsername] = useState(() => readRemembered().username);
+  const [mode, setMode] = useState<Mode>("inventory");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(() => readRemembered().remember);
+  const [remember, setRemember] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
   const [usernameError, setUsernameError] = useState("");
   const [passwordError, setPasswordError] = useState("");
@@ -94,6 +76,27 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const passRef = useRef<HTMLInputElement>(null);
   const userRef = useRef<HTMLInputElement>(null);
+
+  // Restore a remembered username/mode. This has to run after mount, not in
+  // a useState initializer: the server has no localStorage, so seeding state
+  // from it during render makes the first client render disagree with the
+  // server HTML and React reports a hydration mismatch. Reading from an
+  // external store on mount is what effects are for, hence the disable.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem("nlm.user");
+      const savedMode = localStorage.getItem("nlm.mode") as Mode | null;
+      if (savedUser) {
+        setUsername(savedUser);
+        setRemember(true);
+      }
+      if (savedMode && ORDER.includes(savedMode)) setMode(savedMode);
+    } catch {
+      // localStorage unavailable — restoring a remembered login is a nicety, not required.
+    }
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function changeMode(next: Mode) {
     if (busy) return;
