@@ -199,8 +199,8 @@ export default function LoginPage() {
               <div className={cn(styles.chip, slideClass("inventory", mode))}>
                 <span className={styles.chipDot} />
                 <span>
-                  <small>SKU 1042</small>
-                  <b>Qty 48</b>
+                  <small>Bible</small>
+                  <b>Qty 777</b>
                 </span>
                 <span className={styles.chipDelta}>+12 received</span>
               </div>
